@@ -43,6 +43,11 @@ func ReachURLviaFRRroute(ctx SpecContext) {
 				continue
 			}
 
+			err := _pod.WaitUntilReady(5 * time.Minute)
+
+			Expect(err).ToNot(HaveOccurred(), fmt.Sprintf("Pod %q in %q namespace is NotReady",
+				_pod.Definition.Name, _pod.Definition.Namespace))
+
 			cmd := fmt.Sprintf("curl -Ls --max-time 5 -o /dev/null -w '%%{http_code}' %s", testURL)
 
 			glog.V(rdscoreparams.RDSCoreLogLevel).Infof("Running command %q from within pod %s",
