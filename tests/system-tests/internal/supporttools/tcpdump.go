@@ -388,8 +388,11 @@ func ScanTCPDumpPodLogs(
 	tcpdumpPodSelectorLabel,
 	searchString string,
 	timeSpan time.Time) (int, string, error) {
+	glog.V(100).Infof("Listing pods in %q namespace", tcpdumpPodNamespace)
+
 	tcpdumpPodObjects, err := pod.List(apiClient, tcpdumpPodNamespace,
 		metav1.ListOptions{LabelSelector: tcpdumpPodSelectorLabel})
+
 	if err != nil {
 		glog.V(100).Infof("failed to list pod objects: %v", err)
 
@@ -402,7 +405,9 @@ func ScanTCPDumpPodLogs(
 
 	for _, podObj := range tcpdumpPodObjects {
 		if podObj.Object.Spec.NodeName == proberPod.Object.Spec.NodeName {
-			glog.V(100).Infof("tcpdump pod: %s", podObj.Definition.Name)
+			glog.V(100).Infof("tcpdump pod %s runs on %s", podObj.Definition.Name,
+				podObj.Object.Spec.NodeName)
+
 			tcpdumpPodObj = podObj
 
 			break
@@ -417,10 +422,12 @@ func ScanTCPDumpPodLogs(
 
 	var tcpdumpLog string
 
+	glog.V(100).Infof("Getting logs from pod %q", tcpdumpPodObj.Object.Name)
+
 	err = wait.PollUntilContextTimeout(
 		context.TODO(),
-		time.Second,
 		time.Second*5,
+		time.Minute*1,
 		true,
 		func(ctx context.Context) (bool, error) {
 			logStartTimestamp := time.Since(timeSpan)
@@ -454,7 +461,7 @@ func ScanTCPDumpPodLogs(
 			return true, nil
 		})
 
-	glog.V(100).Infof("debug log for %s: -%s-", tcpdumpPodObj.Definition.Name, tcpdumpLog)
+	glog.V(100).Infof("debug log for %s\n: -%s-\n", tcpdumpPodObj.Definition.Name, tcpdumpLog)
 	glog.V(100).Infof("len(tcpdumpLog) = %d", len(tcpdumpLog))
 
 	if len(tcpdumpLog) != 0 {
@@ -484,6 +491,8 @@ func ScanTCPDumpPodLogs(
 
 		return matchesFound, tcpdumpLog, nil
 	}
+
+	glog.V(100).Infof("No matches for %q found in %q logs", searchString, tcpdumpPodObj.Object.Name)
 
 	return 0, tcpdumpLog, fmt.Errorf("no matches found in tcpdump log")
 }
