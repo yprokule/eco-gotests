@@ -306,9 +306,6 @@ var _ = Describe(
 				By("Cleanup UnexpectedAdmission pods after KDump test")
 				rdscorecommon.CleanupUnexpectedAdmissionPods()
 
-				By("Ensure rootless DPDK server deployment was deleted")
-				rdscorecommon.CleanupRootlessDPDKServerDeployment()
-
 				By("Ensure all nodes are Ready and scheduling enabled")
 				rdscorecommon.EnsureInNodeReadiness(ctx)
 			})
@@ -633,11 +630,6 @@ var _ = Describe(
 				Label("whereabouts", "deployment-whereabouts", "deployment-different-nodes-validate"),
 				reportxml.ID("82734"),
 				rdscorecommon.VerifyPodCommunicationOnDifferentNodesAfterClusterReboot)
-
-			AfterEach(func(ctx SpecContext) {
-				By("Ensure rootless DPDK server deployment was deleted")
-				rdscorecommon.CleanupRootlessDPDKServerDeployment()
-			})
 		})
 
 		Context("Graceful Cluster Reboot", Label("graceful-cluster-reboot"), func() {
@@ -916,10 +908,5 @@ var _ = Describe(
 				Label("whereabouts", "deployment-whereabouts", "deployment-different-nodes-validate"),
 				reportxml.ID("82736"),
 				rdscorecommon.VerifyPodCommunicationOnDifferentNodesAfterClusterReboot)
-
-			AfterEach(func(ctx SpecContext) {
-				By("Ensure rootless DPDK server deployment was deleted")
-				rdscorecommon.CleanupRootlessDPDKServerDeployment()
-			})
 		})
 	})
