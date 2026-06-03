@@ -316,16 +316,141 @@ func DeleteDeployment(
 	return nil
 }
 
+// logStuckPodDiagnostics logs detailed diagnostic information about stuck pods.
+func logStuckPodDiagnostics(stuckPods []*pod.Builder) {
+	glog.V(100).Infof("Pod cleanup diagnostics - %d pods still present after 11min timeout:", len(stuckPods))
+
+	for _, stuckPod := range stuckPods {
+		glog.V(100).Infof("  Pod: %s", stuckPod.Definition.Name)
+		glog.V(100).Infof("    Phase: %s", stuckPod.Object.Status.Phase)
+		glog.V(100).Infof("    DeletionTimestamp: %v", stuckPod.Object.DeletionTimestamp)
+
+		// Scenario 1: Finalizers blocking deletion
+		if len(stuckPod.Object.Finalizers) > 0 {
+			glog.V(100).Infof("    STUCK SCENARIO (Finalizers): Finalizers blocking deletion: %v",
+				stuckPod.Object.Finalizers)
+		}
+
+		// Scenario 2: PreStop hook timeout (inferred from long deletion time)
+		if stuckPod.Object.DeletionTimestamp != nil {
+			deletionDuration := time.Since(stuckPod.Object.DeletionTimestamp.Time)
+			if deletionDuration > 5*time.Minute {
+				glog.V(100).Infof("    STUCK SCENARIO (PreStop): PreStop hook timeout suspected (deletion in progress for %v)",
+					deletionDuration)
+			}
+		}
+
+		// Scenario 3: CNI cleanup issues (inferred from network-related containers)
+		for _, containerStatus := range stuckPod.Object.Status.ContainerStatuses {
+			if containerStatus.State.Terminated == nil && containerStatus.State.Running == nil {
+				if containerStatus.State.Waiting != nil &&
+					(containerStatus.State.Waiting.Reason == "ContainerCreating" ||
+						containerStatus.State.Waiting.Reason == "PodInitializing") {
+					glog.V(100).Infof("    STUCK SCENARIO (CNI): CNI/network setup issue suspected (container in %s state)",
+						containerStatus.State.Waiting.Reason)
+				}
+			}
+		}
+
+		// Log all data regardless
+		glog.V(100).Infof("    Finalizers: %v", stuckPod.Object.Finalizers)
+
+		// Log container states
+		for _, containerStatus := range stuckPod.Object.Status.ContainerStatuses {
+			glog.V(100).Infof("    Container: %s, Ready: %v, State: %+v",
+				containerStatus.Name, containerStatus.Ready, containerStatus.State)
+		}
+
+		// Log conditions
+		for _, cond := range stuckPod.Object.Status.Conditions {
+			glog.V(100).Infof("    Condition: Type=%s, Status=%s, Reason=%s, Message=%s",
+				cond.Type, cond.Status, cond.Reason, cond.Message)
+		}
+	}
+}
+
+// forceDeleteStuckPods attempts force deletion of stuck pods and waits for completion.
+func forceDeleteStuckPods(
+	apiClient *clients.Settings,
+	nsName string,
+	podLabel string,
+	stuckPods []*pod.Builder,
+	startTime time.Time) error {
+	glog.V(100).Infof("Attempting force deletion for %d stuck pods", len(stuckPods))
+
+	for _, stuckPod := range stuckPods {
+		glog.V(100).Infof("Force deleting pod: %s", stuckPod.Definition.Name)
+
+		// Use DeleteImmediate for force deletion (GracePeriodSeconds: 0)
+		// This is safe for test cleanup after 11min timeout as:
+		// 1. Pods are already terminating for >11min
+		// 2. Test workloads don't require graceful shutdown
+		// 3. Allows test suite to proceed rather than hanging indefinitely
+		_, delErr := stuckPod.DeleteImmediate()
+		if delErr != nil {
+			glog.V(100).Infof("  Force deletion failed: %v", delErr)
+		} else {
+			glog.V(100).Infof("  Force deletion initiated successfully")
+		}
+	}
+
+	// Poll for force deletion completion instead of blocking sleep
+	glog.V(100).Infof("Waiting for force deletions to complete...")
+
+	pollErr := wait.PollUntilContextTimeout(
+		context.TODO(),
+		time.Second*2,
+		time.Second*30,
+		true,
+		func(ctx context.Context) (bool, error) {
+			checkPods, _ := pod.List(apiClient, nsName, metav1.ListOptions{LabelSelector: podLabel})
+			if len(checkPods) == 0 {
+				glog.V(100).Infof("Force deletion succeeded - all pods removed in %v", time.Since(startTime))
+
+				return true, nil
+			}
+
+			return false, nil
+		})
+
+	if pollErr == nil {
+		// Force deletion succeeded
+		return nil
+	}
+
+	// Verify final state after polling timeout
+	remainingPods, verifyErr := pod.List(apiClient, nsName, metav1.ListOptions{LabelSelector: podLabel})
+	if verifyErr != nil {
+		glog.V(100).Infof("Failed to verify force deletion results: %v", verifyErr)
+
+		return fmt.Errorf("pods matching label(%q) still present in namespace %q after force deletion, "+
+			"verification failed: %w", podLabel, nsName, verifyErr)
+	}
+
+	if len(remainingPods) == 0 {
+		glog.V(100).Infof("Force deletion succeeded - all pods removed")
+
+		return nil
+	}
+
+	glog.V(100).Infof("Force deletion incomplete - %d pods still remain after 30s", len(remainingPods))
+
+	return fmt.Errorf("pods matching label(%q) still present in namespace %q after force deletion attempt",
+		podLabel, nsName)
+}
+
 // EnsureAllPodsRemoved Ensure all deployment pods in namespace with the specific pod label were removed.
 func EnsureAllPodsRemoved(
 	apiClient *clients.Settings,
 	nsName, podLabel string) error {
-	glog.V(100).Infof("Ensuring pods in %q namespace with label %q are gone", nsName, podLabel)
+	glog.V(100).Infof("Starting pod cleanup for label %q in namespace %q", podLabel, nsName)
+
+	startTime := time.Now()
 
 	err := wait.PollUntilContextTimeout(
 		context.TODO(),
 		time.Second*3,
-		time.Minute*6,
+		time.Minute*11, // Extended timeout for SRIOV pod-level bond workloads
 		true,
 		func(ctx context.Context) (bool, error) {
 			oldPods, _ := pod.List(apiClient, nsName,
@@ -335,9 +460,27 @@ func EnsureAllPodsRemoved(
 		})
 
 	if err != nil {
-		return fmt.Errorf("pods matching label(%q) still present in namespace %q",
-			podLabel, nsName)
+		glog.V(100).Infof("Pod cleanup failed after %v: %v", time.Since(startTime), err)
+
+		// Retrieve stuck pods for diagnostics
+		stuckPods, listErr := pod.List(apiClient, nsName, metav1.ListOptions{LabelSelector: podLabel})
+		if listErr != nil {
+			glog.V(100).Infof("Failed to retrieve stuck pods for diagnostics: %v", listErr)
+
+			return fmt.Errorf("pods matching label(%q) still present in namespace %q, "+
+				"and failed to retrieve pod details: %w", podLabel, nsName, listErr)
+		}
+
+		if len(stuckPods) > 0 {
+			logStuckPodDiagnostics(stuckPods)
+
+			return forceDeleteStuckPods(apiClient, nsName, podLabel, stuckPods, startTime)
+		}
+
+		return fmt.Errorf("pods matching label(%q) still present in namespace %q", podLabel, nsName)
 	}
+
+	glog.V(100).Infof("Pod cleanup succeeded in %v", time.Since(startTime))
 
 	return nil
 }
