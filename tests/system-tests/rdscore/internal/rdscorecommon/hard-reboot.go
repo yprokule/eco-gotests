@@ -216,7 +216,7 @@ func VerifySoftReboot(ctx SpecContext) {
 
 		time.Sleep(5 * time.Second)
 
-		err = DrainNodeWithRetry(ctx, _node)
+		err = DrainNodeWithRetry(ctx, _node, APIClient)
 		Expect(err).ToNot(HaveOccurred(),
 			fmt.Sprintf("Failed to drain %q due to %v", _node.Definition.Name, err))
 

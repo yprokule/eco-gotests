@@ -8,8 +8,12 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/nodes"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/system-tests/rdscore/internal/rdscoreparams"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
@@ -18,10 +22,11 @@ const (
 	uncordonNodeInterval = 15 * time.Second
 	uncordonNodeTimeout  = 3 * time.Minute
 
-	// Drain operation constants.
-	drainNodeTimeout      = 25 * time.Minute // Total drain timeout
-	drainNodeGracePeriod  = 600              // Pod termination grace period (10 min)
-	drainNodeSkipWait     = 300              // Skip wait for stuck pods (5 min)
+	// Drain operation constants - used as minimum fallback values.
+	// Actual timeouts are calculated dynamically based on pod grace periods.
+	drainNodeTimeout      = 25 * time.Minute // Minimum total drain timeout
+	drainNodeGracePeriod  = 600              // Minimum pod termination grace period (10 min)
+	drainNodeSkipWait     = 300              // Minimum skip wait for stuck pods (5 min)
 	drainNodeRetryTimeout = 2 * time.Minute  // Retry window for transient failures
 )
 
@@ -66,25 +71,131 @@ func UncordonNode(nodeToUncordon *nodes.Builder, interval, timeout time.Duration
 	return nil
 }
 
+// calculateDrainTimeouts scans all pods on the target node and returns recommended
+// drain timeout values based on the maximum terminationGracePeriodSeconds found.
+// It ensures drain timeouts accommodate even the slowest-terminating pods.
+// Returns (gracePeriod, skipWait, totalTimeout, error).
+func calculateDrainTimeouts(
+	apiClient *clients.Settings,
+	nodeName string,
+) (int, int, time.Duration, error) {
+	klog.V(100).Infof("Calculating drain timeouts for node %q", nodeName)
+
+	// List all pods on the target node across all namespaces
+	listOptions := metav1.ListOptions{
+		FieldSelector: fields.SelectorFromSet(
+			fields.Set{"spec.nodeName": nodeName}).String(),
+	}
+
+	pods, err := pod.ListInAllNamespaces(apiClient, listOptions)
+	if err != nil {
+		klog.V(rdscoreparams.RDSCoreLogLevel).Infof(
+			"Failed to list pods on node %q: %v - using default timeouts", nodeName, err)
+
+		return drainNodeGracePeriod, drainNodeSkipWait, drainNodeTimeout, err
+	}
+
+	klog.V(100).Infof("Found %d pods on node %q", len(pods), nodeName)
+
+	// Handle empty node case
+	if len(pods) == 0 {
+		klog.V(rdscoreparams.RDSCoreLogLevel).Infof(
+			"Node %q has no pods, using minimum timeout values", nodeName)
+
+		return drainNodeGracePeriod, drainNodeSkipWait, drainNodeTimeout, nil
+	}
+
+	// Find maximum terminationGracePeriodSeconds among all pods
+	maxGracePeriod := int64(30) // Kubernetes default
+
+	var podsWithMaxGracePeriod []string
+
+	for _, podBuilder := range pods {
+		var gracePeriod int64
+
+		if podBuilder.Object.Spec.TerminationGracePeriodSeconds != nil {
+			gracePeriod = *podBuilder.Object.Spec.TerminationGracePeriodSeconds
+		} else {
+			gracePeriod = 30 // Kubernetes default
+		}
+
+		if gracePeriod > maxGracePeriod {
+			maxGracePeriod = gracePeriod
+			podsWithMaxGracePeriod = []string{fmt.Sprintf("%s/%s", podBuilder.Object.Namespace, podBuilder.Object.Name)}
+		} else if gracePeriod == maxGracePeriod {
+			podsWithMaxGracePeriod = append(podsWithMaxGracePeriod,
+				fmt.Sprintf("%s/%s", podBuilder.Object.Namespace, podBuilder.Object.Name))
+		}
+	}
+
+	// Calculate timeout values with appropriate buffer
+	// Grace period: use max found, but enforce minimum of 600s (10 min)
+	calculatedGracePeriod := int(maxGracePeriod)
+	if calculatedGracePeriod < drainNodeGracePeriod {
+		calculatedGracePeriod = drainNodeGracePeriod
+	}
+
+	// Skip wait: half of grace period (reasonable for stuck pods)
+	calculatedSkipWait := calculatedGracePeriod / 2
+
+	// Total timeout: grace period + 5 minute buffer, minimum 25 minutes
+	calculatedTimeout := time.Duration(calculatedGracePeriod)*time.Second + 5*time.Minute
+	if calculatedTimeout < drainNodeTimeout {
+		calculatedTimeout = drainNodeTimeout
+	}
+
+	// Add diagnostic logging
+	klog.V(rdscoreparams.RDSCoreLogLevel).Infof(
+		"Maximum terminationGracePeriodSeconds on node %q: %ds", nodeName, maxGracePeriod)
+
+	// Limit to first 5 pods to avoid log spam
+	podList := podsWithMaxGracePeriod
+	if len(podList) > 5 {
+		podList = append(podList[:5], fmt.Sprintf("... and %d more", len(podsWithMaxGracePeriod)-5))
+	}
+
+	klog.V(rdscoreparams.RDSCoreLogLevel).Infof(
+		"Pods with %ds grace period on node %q: %v", maxGracePeriod, nodeName, podList)
+
+	klog.V(rdscoreparams.RDSCoreLogLevel).Infof(
+		"Calculated drain timeouts for node %q - gracePeriod=%ds, skipWait=%ds, totalTimeout=%v",
+		nodeName, calculatedGracePeriod, calculatedSkipWait, calculatedTimeout)
+
+	return calculatedGracePeriod, calculatedSkipWait, calculatedTimeout, nil
+}
+
 // DrainNodeWithRetry drains a node with retry logic for transient failures.
 // It configures drain with production-appropriate timeouts and logs drain duration.
-func DrainNodeWithRetry(ctx context.Context, nodeToDrain *nodes.Builder) error {
-	By(fmt.Sprintf("Draining node %q with timeout=%v",
-		nodeToDrain.Definition.Name, drainNodeTimeout))
+func DrainNodeWithRetry(ctx context.Context, nodeToDrain *nodes.Builder, apiClient *clients.Settings) error {
+	// Calculate dynamic timeouts based on pod grace periods
+	gracePeriod, skipWait, totalTimeout, calcErr := calculateDrainTimeouts(
+		apiClient, nodeToDrain.Definition.Name)
+	if calcErr != nil {
+		klog.V(rdscoreparams.RDSCoreLogLevel).Infof(
+			"Failed to calculate dynamic timeouts for node %q, using defaults: %v",
+			nodeToDrain.Definition.Name, calcErr)
+		// Fall back to static constants
+		gracePeriod = drainNodeGracePeriod
+		skipWait = drainNodeSkipWait
+		totalTimeout = drainNodeTimeout
+	}
 
-	// Configure drain with extended timeout
+	By(fmt.Sprintf("Draining node %q with timeout=%v",
+		nodeToDrain.Definition.Name, totalTimeout))
+
+	// Configure drain with calculated timeout
 	nodeToDrain.SetDrainHelper(
-		true,                 // force: allow standalone pods
-		true,                 // ignoreDaemonsets: required for OpenShift
-		true,                 // deleteLocalData: required for emptyDir volumes
-		drainNodeGracePeriod, // gracePeriod: 10 minutes for clean shutdown
-		drainNodeSkipWait,    // skipWaitForDelete: 5 minutes for stuck pods
-		drainNodeTimeout,     // timeout: 25 minutes total
+		true,         // force: allow standalone pods
+		true,         // ignoreDaemonsets: required for OpenShift
+		true,         // deleteLocalData: required for emptyDir volumes
+		gracePeriod,  // gracePeriod: calculated from pod grace periods
+		skipWait,     // skipWaitForDelete: calculated as gracePeriod/2
+		totalTimeout, // timeout: calculated as gracePeriod + 5min buffer
 	)
 
 	klog.V(rdscoreparams.RDSCoreLogLevel).Infof(
-		"Drain configuration - timeout=%v, gracePeriod=%ds, skipWait=%ds",
-		drainNodeTimeout, drainNodeGracePeriod, drainNodeSkipWait)
+		"Drain configuration for node %q - timeout=%v, gracePeriod=%ds, skipWait=%ds (dynamically calculated)",
+		nodeToDrain.Definition.Name, totalTimeout, gracePeriod, skipWait)
 
 	startTime := time.Now()
 

@@ -1173,7 +1173,7 @@ func ensurePodConnectivityAfterNodeDrain(
 
 	time.Sleep(5 * time.Second)
 
-	err = DrainNodeWithRetry(ctx, nodeObj)
+	err = DrainNodeWithRetry(ctx, nodeObj, APIClient)
 
 	Expect(err).ToNot(HaveOccurred(),
 		fmt.Sprintf("Failed to drain node %s due to: %v", nodeToDrain, err))

@@ -854,7 +854,7 @@ func VerifyConnectivityAfterNodeDrain(
 
 	klog.V(rdscoreparams.RDSCoreLogLevel).Infof("Draining node %q", nodeToDrain)
 
-	err = nodeObj.Drain()
+	err = DrainNodeWithRetry(ctx, nodeObj, APIClient)
 
 	Expect(err).ToNot(HaveOccurred(),
 		fmt.Sprintf("Failed to drain node %s due to: %v", nodeToDrain, err))
