@@ -81,16 +81,12 @@ func CleanupConsumersOnNodes(client *clients.Settings) error {
 }
 
 // getEventAPIVersion retrieves the event API version from the PTP operator config. If the PTP version on spoke 1 is at
-// least 4.19, the version will always be [eventAPIVersionV2].
+// least 4.19, the version will always be [eventAPIVersionV2]. On versions before 4.16 the apiVersion field does not
+// exist in ptpEventConfig and v1 is used.
 func getEventAPIVersion(client *clients.Settings) (ptpEventAPIVersion, error) {
 	ptpVersion := RANConfig.Spoke1OperatorVersions[ranparam.PTP]
 	if ptpVersion == "" {
 		return "", fmt.Errorf("PTP operator version not found in spoke 1 operator versions")
-	}
-
-	atLeast419, err := version.IsVersionStringInRange(ptpVersion, "4.19.0-0", "")
-	if err != nil {
-		return "", fmt.Errorf("failed to check if PTP version is at least 4.19: %w", err)
 	}
 
 	ptpOperatorConfig, err := ptp.PullPtpOperatorConfig(client)
@@ -108,17 +104,37 @@ func getEventAPIVersion(client *clients.Settings) (ptpEventAPIVersion, error) {
 		return "", errEventsNotEnabled
 	}
 
+	return resolveEventAPIVersion(ptpVersion, ptpOperatorConfig.Definition.Spec.EventConfig.ApiVersion)
+}
+
+// resolveEventAPIVersion resolves the event API version based on the PTP version and the config API version.
+func resolveEventAPIVersion(ptpVersion, configAPIVersion string) (ptpEventAPIVersion, error) {
+	atLeast419, err := version.IsVersionStringInRange(ptpVersion, "4.19.0-0", "")
+	if err != nil {
+		return "", fmt.Errorf("failed to check if PTP version is at least 4.19: %w", err)
+	}
+
 	// If the PTP version is at least 4.19, the event API version is always v2.
 	if atLeast419 {
 		return eventAPIVersionV2, nil
 	}
 
-	switch apiVersion := ptpOperatorConfig.Definition.Spec.EventConfig.ApiVersion; apiVersion {
+	atLeast416, err := version.IsVersionStringInRange(ptpVersion, "4.16.0-0", "")
+	if err != nil {
+		return "", fmt.Errorf("failed to check if PTP version is at least 4.16: %w", err)
+	}
+
+	// The apiVersion field was added in PTP 4.16; earlier versions only support v1.
+	if !atLeast416 {
+		return eventAPIVersionV1, nil
+	}
+
+	switch configAPIVersion {
 	case string(eventAPIVersionV1):
 		return eventAPIVersionV1, nil
 	case string(eventAPIVersionV2):
 		return eventAPIVersionV2, nil
 	default:
-		return "", fmt.Errorf("unknown event API version %s in PTP operator config", apiVersion)
+		return "", fmt.Errorf("unknown event API version %s in PTP operator config", configAPIVersion)
 	}
 }
