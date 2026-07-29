@@ -1,0 +1,17 @@
+---
+# OCP HWOL Test Suite Default Configuration
+#
+# Devices are NOT configured here. Set ECO_OCP_HWOL_DEVICES at runtime:
+#   name:deviceID:vendor:interface (comma-separated for multiple)
+
+# Test container image used for workload pods
+ocp_hwol_test_container: quay.io/ocp-edge-qe/eco-gotests-sriov-client:v4.15.2
+
+# SR-IOV Network Operator namespace
+sriov_operator_namespace: openshift-sriov-network-operator
+
+# Machine Config Pool label for HWOL / switchdev policies
+mcp_label: sriov
+
+# Default number of Virtual Functions to configure
+vf_num: 2
