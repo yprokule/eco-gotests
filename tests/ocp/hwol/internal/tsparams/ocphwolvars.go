@@ -16,9 +16,11 @@ var (
 	ReporterCRDsToDump = []k8sreporter.CRData{
 		{Cr: &mcfgv1.MachineConfigPoolList{}},
 		{Cr: &sriovv1.SriovNetworkNodePolicyList{}},
+		{Cr: &sriovv1.SriovNetworkPoolConfigList{}},
 		{Cr: &sriovv1.SriovNetworkList{}},
 		{Cr: &sriovv1.SriovNetworkNodeStateList{}},
 		{Cr: &sriovv1.SriovOperatorConfigList{}},
+		{Cr: &sriovv1.OVSNetworkList{}},
 	}
 
 	// ReporterNamespacesToDump tells the reporter what namespaces to dump on failure.
