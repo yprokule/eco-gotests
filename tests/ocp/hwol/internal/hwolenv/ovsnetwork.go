@@ -107,6 +107,23 @@ func (builder *OvsNetworkBuilder) WithIPAM(ipam string) *OvsNetworkBuilder {
 	return builder
 }
 
+// WithBridge sets the OVS bridge name used by ovs-cni for VF representors.
+func (builder *OvsNetworkBuilder) WithBridge(bridge string) *OvsNetworkBuilder {
+	if valid, _ := builder.validate(); !valid {
+		return builder
+	}
+
+	if bridge == "" {
+		builder.errorMsg = "OVSNetwork 'bridge' cannot be empty"
+
+		return builder
+	}
+
+	builder.Definition.Spec.Bridge = bridge
+
+	return builder
+}
+
 // Get returns the OVSNetwork object if found.
 func (builder *OvsNetworkBuilder) Get() (*sriovv1.OVSNetwork, error) {
 	if valid, err := builder.validate(); !valid {
@@ -225,8 +242,10 @@ func (builder *OvsNetworkBuilder) validate() (bool, error) {
 // CreateOvsNetwork creates an OVSNetwork CR that generates a NAD using the ovs CNI plugin
 // (not sriov CNI) in networkNS. If ipam is empty, HostLocalIPAM is used. Callers may pass
 // other IPAM JSON later (for example NV-IPAM) without changing this helper.
+// bridge may be empty; when set it is written into the NAD so representors attach to the
+// managed HWOL bridge (e.g. br-0000_ca_00.0).
 func CreateOvsNetwork(
-	name, operatorNS, resourceName, networkNS, ipam string,
+	name, operatorNS, resourceName, networkNS, ipam, bridge string,
 ) (*OvsNetworkBuilder, error) {
 	network := NewOvsNetworkBuilder(APIClient, name, operatorNS, networkNS, resourceName)
 	if network == nil {
@@ -238,6 +257,10 @@ func CreateOvsNetwork(
 	}
 
 	network = network.WithIPAM(ipam)
+
+	if bridge != "" {
+		network = network.WithBridge(bridge)
+	}
 
 	created, err := network.Create()
 	if err != nil {

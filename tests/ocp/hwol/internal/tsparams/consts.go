@@ -16,9 +16,16 @@ const (
 	LabelOvsNetwork = "ovs-network"
 	// LabelSriovNetwork represents sriov CNI attach coverage.
 	LabelSriovNetwork = "sriov-network"
+	// LabelOffload represents iperf traffic + OVS type=offloaded flow coverage.
+	LabelOffload = "offload"
 
 	// ResourceNamePrefix is the OpenShift device-plugin resource name prefix.
 	ResourceNamePrefix = "openshift.io/"
+
+	// IperfDuration is the client-side iperf3 test duration for offload checks.
+	IperfDuration = 15 * time.Second
+	// MinVFNumForOffload is VF0 reserved plus two workload VFs for server/client pods.
+	MinVFNumForOffload = 3
 
 	// DefaultTimeout represents default timeout for general operations.
 	DefaultTimeout = 300 * time.Second

@@ -14,9 +14,11 @@ locally with `ECO_TEST_FEATURES=hwol` (`make run-tests`).
 - Host IOMMU enabled (`intel_iommu=on iommu=pt`); Dell/BF often also need
   `pci=realloc` (and sometimes BIOS MMIO High Size) before VF create works
 - `KUBECONFIG` pointing at the cluster
-- For the **ovs-network** attach path: Subscription must set `OVS_CNI_IMAGE` to a
+- For the **ovs-network** path: Subscription must set `OVS_CNI_IMAGE` to a
   pullable ovs-cni image, with registry credentials configured on the cluster
   as needed
+- For the **offload** path: test image must include `iperf3` (default does);
+  `ECO_OCP_HWOL_VF_NUM` ≥ 3 (VF0 reserved + server/client VFs)
 
 ## Required environment variables
 
@@ -32,14 +34,15 @@ Devices are **not** configured in YAML. `ECO_OCP_HWOL_DEVICES` is required.
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ECO_OCP_HWOL_OPERATOR_NAMESPACE` | SR-IOV operator namespace | `openshift-sriov-network-operator` |
-| `ECO_OCP_HWOL_TEST_CONTAINER` | Workload container image | see `internal/ocphwolconfig/default.yaml` |
+| `ECO_OCP_HWOL_TEST_CONTAINER` | Workload / traffic image (needs `iperf3` for offload) | `quay.io/openshifttest/iperf3@sha256:440c5925…` |
 | `ECO_OCP_HWOL_MCP_LABEL` | Machine config pool name / role label | `sriov` |
-| `ECO_OCP_HWOL_VF_NUM` | Number of VFs to configure (≥2; VF0 reserved) | `2` |
+| `ECO_OCP_HWOL_VF_NUM` | Number of VFs (≥3 recommended; VF0 reserved) | `3` |
 | `ECO_WORKER_LABEL` | Worker node label selector | from shared ocpconfig |
 
-If the default test image (`quay.io/ocp-edge-qe/...`) cannot be pulled, set
-`ECO_OCP_HWOL_TEST_CONTAINER` to a public image the cluster can reach
-(e.g. `registry.access.redhat.com/ubi9/ubi-minimal:latest`).
+Default test image is the OpenShift org Quay `iperf3` image (digest-pinned). Prefer
+`openshift/network-tools` once it ships iperf3
+([PR #189](https://github.com/openshift/network-tools/pull/189)). Override with
+`ECO_OCP_HWOL_TEST_CONTAINER` if the lab cannot pull Quay.
 
 ## Directory structure
 
@@ -49,9 +52,9 @@ tests/ocp/hwol/
 ├── README.md
 ├── tests/
 │   ├── setup.go                    # Precondition smoke
-│   └── hwol.go                     # Ordered: foundation, switchdev It, attach table
+│   └── hwol.go                     # Ordered: foundation, switchdev, attach, offload
 └── internal/
-    ├── hwolenv/                    # Foundation, OVSNetwork, policy helpers
+    ├── hwolenv/                    # Foundation, OVSNetwork, offload helpers
     ├── ocphwolconfig/              # ECO_OCP_HWOL_* config + default.yaml
     ├── ocphwolinittools/           # APIClient + HwolOcpConfig globals
     └── tsparams/                   # Labels, timeouts, reporter dumps
@@ -66,12 +69,13 @@ Shared NAD wait/assert helpers live in `tests/internal/sriovoperator/nad.go`.
 | `ocphwol` | Suite label — all HWOL tests |
 | `setup` | Precondition smoke (operator, devices, workers) |
 | `switchdev` | Switchdev mode + managed OVS bridge assert |
-| `ovs-network` | Attach via `OVSNetwork` (ovs CNI) + NAD + pod |
-| `sriov-network` | Attach via `SriovNetwork` (sriov CNI) + NAD + pod |
+| `ovs-network` | Attach / offload via `OVSNetwork` (ovs CNI) |
+| `sriov-network` | Attach / offload via `SriovNetwork` (sriov CNI) |
+| `offload` | Same-node iperf + `ovs-appctl dpctl/dump-flows type=offloaded` |
 
 Foundation (operator config, pool, switchdev policy, MCP wait) runs once in the
 Ordered `BeforeAll` for the HWOL Describe. Filtering with `ECO_TEST_LABELS`
-still runs that foundation when an attach or switchdev `It`/`Entry` is selected.
+still runs that foundation when an attach, offload, or switchdev spec is selected.
 
 ## Running tests
 
@@ -107,7 +111,6 @@ make run-tests
 export ECO_TEST_FEATURES=hwol
 export ECO_TEST_LABELS=ovs-network
 export ECO_OCP_HWOL_DEVICES="bf2:a2d6:15b3:ens7f0np0"
-export ECO_OCP_HWOL_TEST_CONTAINER=registry.access.redhat.com/ubi9/ubi-minimal:latest
 make run-tests
 ```
 
@@ -117,7 +120,25 @@ make run-tests
 export ECO_TEST_FEATURES=hwol
 export ECO_TEST_LABELS=sriov-network
 export ECO_OCP_HWOL_DEVICES="bf2:a2d6:15b3:ens7f0np0"
-export ECO_OCP_HWOL_TEST_CONTAINER=registry.access.redhat.com/ubi9/ubi-minimal:latest
+make run-tests
+```
+
+### offload verify (iperf + dpctl; OVSNetwork path)
+
+Hardware-offload traffic verification is the **OVSNetwork / ovs CNI** path:
+NAD config must name the managed bridge, both pod VF representors must be
+`ovs-vsctl` ports on that bridge, then same-node iperf and
+`dpctl/dump-flows type=offloaded`. The **sriov-network offload** Entry is
+**Pending** until sriov CNI places VF representors on the managed bridge;
+sriov **attach** still runs. Prefer CI labels such as
+`ECO_TEST_LABELS=ovs-network` (attach + offload ovs) or
+`ECO_TEST_LABELS='offload && ovs-network'`.
+
+```bash
+export ECO_TEST_FEATURES=hwol
+export ECO_TEST_LABELS='offload && ovs-network'
+export ECO_OCP_HWOL_DEVICES="bf2:a2d6:15b3:ens7f0np0"
+export ECO_OCP_HWOL_VF_NUM=3
 make run-tests
 ```
 
@@ -127,7 +148,10 @@ The Ordered HWOL spec ensures `SriovOperatorConfig` (`disablePlugins: [mellanox]
 nodeSelector/maxUnavailable), applies switchdev policy with `bridge.ovs: {}`,
 and waits for MCP/node-state sync. The `switchdev` It asserts
 `eSwitchMode=switchdev` and a managed OVS bridge uplink. Attach table Entries
-create the network CR, assert NAD type/resource, and run a sleep pod.
+create the network CR, assert NAD type/resource (and bridge for ovs), and run a
+sleep pod. The ovs offload Entry creates two same-node iperf pods, asserts
+representors on the managed bridge, runs traffic, and asserts non-empty
+`type=offloaded` datapath flows on the node.
 
 `AfterAll` removes HWOL OVSNetwork/SriovNetwork objects, policies, and the pool
 config — run on a dedicated lab MCP, not a shared production-like pool. Cleanup
@@ -141,10 +165,18 @@ re-running.
 |------|----------------|
 | HWOL setup smoke | SR-IOV operator deployed, `ECO_OCP_HWOL_DEVICES` parses, ≥1 worker |
 | HWOL switchdev | Foundation + OVS bridge status on MCP nodes |
-| HWOL attach (ovs / sriov) | NAD `type` + resource annotation + pod secondary network |
+| HWOL attach (ovs / sriov) | NAD `type` + resource (+ ovs bridge) + pod secondary network |
+| HWOL offload (ovs) | Representors on managed bridge + iperf3 + `type=offloaded` flows |
+| HWOL offload (sriov) | Pending — VF representors not on managed OVS bridge |
 
 Attach networks default to host-local IPAM (configurable on the create helpers);
 NV-IPAM is not a suite prerequisite.
 
-OVN feature tables and offload flow assertions (`ovs-appctl dpctl/dump-flows
-type=offloaded`) are follow-on work.
+The offload path requires the HWOL PF to have **link/carrier** (BF/CX data
+ports cabled to the lab switch). Without carrier, switchdev + NAD attach can
+still pass while same-node VF↔VF iperf fails (`Host is unreachable`) because the
+mlx5 eSwitch does not deliver traffic to OVS representors.
+
+Representor tcpdump heuristics and full
+[kubernetes-traffic-flow-tests](https://github.com/ovn-kubernetes/kubernetes-traffic-flow-tests)
+(`validate_offload`) integration are follow-on work.

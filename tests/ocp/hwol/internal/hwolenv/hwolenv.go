@@ -3,15 +3,20 @@ package hwolenv
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
 	"time"
 
 	sriovv1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/nodes"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/sriov"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/internal/sriovoperator"
 	hwolconfig "github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/ocphwolconfig"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/ocphwolinittools"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/tsparams"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -150,6 +155,7 @@ func CreateOvsOffloadPoolConfig(name, operatorNS, mcpName string) (*sriov.PoolCo
 
 // CreateSwitchdevPolicy creates a switchdev SriovNetworkNodePolicy with OVS bridge management.
 // VF0 is reserved as the management port (pfNames range starts at 1).
+// If a policy already exists with a different numVfs/pfNames selector, it is replaced.
 func CreateSwitchdevPolicy(
 	name, operatorNS, resourceName string,
 	device hwolconfig.DeviceConfig,
@@ -179,6 +185,48 @@ func CreateSwitchdevPolicy(
 		OVS: &sriovv1.OVSConfig{},
 	}
 
+	if policy.Exists() {
+		existing := policy.Object.Spec
+		same := existing.NumVfs == vfNum &&
+			existing.EswitchMode == tsparams.SwitchdevMode &&
+			existing.Bridge.OVS != nil &&
+			len(existing.NicSelector.PfNames) == 1 &&
+			existing.NicSelector.PfNames[0] == pfSelector &&
+			existing.NicSelector.Vendor == device.Vendor &&
+			existing.NicSelector.DeviceID == device.DeviceID
+
+		if same {
+			klog.V(90).Infof("SriovNetworkNodePolicy %s already matches desired HWOL config", name)
+
+			return policy, nil
+		}
+
+		klog.V(90).Infof(
+			"Replacing SriovNetworkNodePolicy %s (numVfs/pfNames mismatch: have %d %v, want %d [%s])",
+			name, existing.NumVfs, existing.NicSelector.PfNames, vfNum, pfSelector)
+
+		if err := policy.Delete(); err != nil {
+			return nil, fmt.Errorf("failed to delete outdated SriovNetworkNodePolicy %s: %w", name, err)
+		}
+
+		// Rebuild definition after delete; Exists()/Delete mutate builder state.
+		policy = sriov.NewPolicyBuilder(
+			APIClient,
+			name,
+			operatorNS,
+			resourceName,
+			vfNum,
+			[]string{pfSelector},
+			nodeSelector,
+		).WithDevType("netdevice").WithMTU(1500)
+		policy.Definition.Spec.NicSelector.Vendor = device.Vendor
+		policy.Definition.Spec.NicSelector.DeviceID = device.DeviceID
+		policy.Definition.Spec.EswitchMode = tsparams.SwitchdevMode
+		policy.Definition.Spec.Bridge = sriovv1.Bridge{
+			OVS: &sriovv1.OVSConfig{},
+		}
+	}
+
 	created, err := policy.Create()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SriovNetworkNodePolicy %s: %w", name, err)
@@ -190,6 +238,10 @@ func CreateSwitchdevPolicy(
 // CreateSriovNetwork creates a SriovNetwork for the HWOL resource in the test namespace.
 // If ipam is empty, HostLocalIPAM is used. Callers may pass other IPAM JSON later
 // (for example NV-IPAM) without changing this helper.
+//
+// Sriov CNI same-node HWOL is deferred: VF representors are not ports on the managed
+// OVS bridge, so L2 between same-node pods fails. Keep this helper for attach coverage;
+// the offload Entry that uses it is Pending until representor plumbing exists.
 func CreateSriovNetwork(
 	name, operatorNS, resourceName, networkNS, ipam string,
 ) (*sriov.NetworkBuilder, error) {
@@ -281,6 +333,44 @@ func findStatusInterface(ifaces sriovv1.InterfaceExts, pfName string) (*sriovv1.
 	return nil, fmt.Errorf("interface %s not found in SriovNetworkNodeState status", pfName)
 }
 
+// LookupManagedOVSBridge returns the managed OVS bridge name for pfName on the first MCP worker.
+func LookupManagedOVSBridge(operatorNS, mcpLabel, pfName string) (string, error) {
+	workerNodes, err := ListMCPWorkerNodes(mcpLabel)
+	if err != nil {
+		return "", fmt.Errorf("failed to list MCP nodes: %w", err)
+	}
+
+	if len(workerNodes) == 0 {
+		return "", fmt.Errorf("no nodes found with label node-role.kubernetes.io/%s", mcpLabel)
+	}
+
+	nodeName := workerNodes[0].Object.Name
+	state := sriov.NewNetworkNodeStateBuilder(APIClient, nodeName, operatorNS)
+
+	if err := state.Discover(); err != nil {
+		return "", fmt.Errorf("failed to discover SriovNetworkNodeState for %s: %w", nodeName, err)
+	}
+
+	iface, err := findStatusInterface(state.Objects.Status.Interfaces, pfName)
+	if err != nil {
+		return "", fmt.Errorf("node %s: %w", nodeName, err)
+	}
+
+	for _, bridge := range state.Objects.Status.Bridges.OVS {
+		for _, uplink := range bridge.Uplinks {
+			if uplink.Name == pfName || uplink.PciAddress == iface.PciAddress {
+				if bridge.Name == "" {
+					return "", fmt.Errorf("node %s: OVS bridge for PF %s has empty name", nodeName, pfName)
+				}
+
+				return bridge.Name, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("node %s: no managed OVS bridge for PF %s", nodeName, pfName)
+}
+
 func assertOVSBridgeForPF(bridges sriovv1.Bridges, pfName, pciAddress string) error {
 	if len(bridges.OVS) == 0 {
 		return fmt.Errorf("no OVS bridges in SriovNetworkNodeState status for PF %s", pfName)
@@ -295,6 +385,251 @@ func assertOVSBridgeForPF(bridges sriovv1.Bridges, pfName, pciAddress string) er
 	}
 
 	return fmt.Errorf("no OVS bridge uplink matching PF %s (%s)", pfName, pciAddress)
+}
+
+var offloadedPacketsRE = regexp.MustCompile(`packets:(\d+)`)
+
+// AssertVFRepresentorsOnBridge maps each VF PCI address to its host representor netdev
+// (PF virtfnN → typically <pf>_<N>) and asserts that representor is an ovs-vsctl port
+// on bridge. Used for the ovs CNI offload path before iperf.
+func AssertVFRepresentorsOnBridge(nodeName, bridge, image string, pciAddrs ...string) error {
+	if nodeName == "" {
+		return fmt.Errorf("nodeName cannot be empty")
+	}
+
+	if bridge == "" {
+		return fmt.Errorf("bridge cannot be empty")
+	}
+
+	if image == "" {
+		return fmt.Errorf("debug pod image cannot be empty")
+	}
+
+	if len(pciAddrs) == 0 {
+		return fmt.Errorf("at least one PCI address is required")
+	}
+
+	for _, pci := range pciAddrs {
+		if strings.TrimSpace(pci) == "" {
+			return fmt.Errorf("PCI address cannot be empty")
+		}
+	}
+
+	debugPod, err := newOvsDebugPod(nodeName, image)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_, _ = debugPod.Delete()
+	}()
+
+	script := `
+set -eu
+bridge="$1"
+shift
+normalize_pci() {
+  pci="$1"
+  case "$pci" in
+    *:*:*.*) echo "$pci" ;;
+    *:*.*) echo "0000:$pci" ;;
+    *) echo "$pci" ;;
+  esac
+}
+pci_basename() {
+  basename "$(normalize_pci "$1")"
+}
+for pci in "$@"; do
+  full="$(normalize_pci "$pci")"
+  short="$(pci_basename "$pci")"
+  dev="/sys/bus/pci/devices/$full"
+  if [ ! -e "$dev" ]; then
+    echo "PCI device $full not found on host" >&2
+    exit 1
+  fi
+  if [ ! -e "$dev/physfn" ]; then
+    echo "PCI $full has no physfn (not a VF?)" >&2
+    exit 1
+  fi
+  pf_pci="$(basename "$(readlink -f "$dev/physfn")")"
+  pf_net=""
+  for n in /sys/bus/pci/devices/"$pf_pci"/net/*; do
+    [ -e "$n" ] || continue
+    pf_net="$(basename "$n")"
+    break
+  done
+  if [ -z "$pf_net" ]; then
+    echo "no netdev for PF $pf_pci" >&2
+    exit 1
+  fi
+  vf_idx=""
+  for virtfn in /sys/bus/pci/devices/"$pf_pci"/virtfn*; do
+    [ -e "$virtfn" ] || continue
+    target="$(basename "$(readlink -f "$virtfn")")"
+    if [ "$target" = "$short" ] || [ "$target" = "$(basename "$full")" ]; then
+      vf_idx="${virtfn##*virtfn}"
+      break
+    fi
+  done
+  if [ -z "$vf_idx" ]; then
+    echo "could not map PCI $full to a virtfn under PF $pf_pci" >&2
+    exit 1
+  fi
+  rep="${pf_net}_${vf_idx}"
+  if [ ! -d "/sys/class/net/$rep" ]; then
+    echo "representor netdev $rep for PCI $full not found" >&2
+    exit 1
+  fi
+  if ! ovs-vsctl list-ports "$bridge" | grep -qx "$rep"; then
+    echo "representor $rep (PCI $full) is not a port on bridge $bridge" >&2
+    echo "bridge ports:" >&2
+    ovs-vsctl list-ports "$bridge" >&2 || true
+    exit 1
+  fi
+  echo "OK $full -> $rep on $bridge"
+done
+`
+
+// AssertVFRepresentorsOnBridge maps each VF PCI address to its host representor netdev
+// (PF virtfnN → typically <pf>_<N>) and asserts that representor is an ovs-vsctl port
+// on bridge. Used for the ovs CNI offload path before iperf.
+func AssertVFRepresentorsOnBridge(nodeName, bridge, image string, pciAddrs ...string) error {
+	if nodeName == "" {
+		return fmt.Errorf("nodeName cannot be empty")
+	}
+
+	if bridge == "" {
+		return fmt.Errorf("bridge cannot be empty")
+	}
+
+	if image == "" {
+		return fmt.Errorf("debug pod image cannot be empty")
+	}
+
+	if len(pciAddrs) == 0 {
+		return fmt.Errorf("at least one PCI address is required")
+	}
+
+	for _, pci := range pciAddrs {
+		if strings.TrimSpace(pci) == "" {
+			return fmt.Errorf("PCI address cannot be empty")
+		}
+	}
+
+	debugPod, err := newOvsDebugPod(nodeName, image)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_, _ = debugPod.DeleteAndWait(tsparams.DefaultTimeout)
+	}()
+
+	args := []string{"chroot", "/host", "sh", "-c", vfRepresentorOnBridgeScript, "sh", bridge}
+	args = append(args, pciAddrs...)
+
+	out, err := debugPod.ExecCommand(args)
+	if err != nil {
+		return fmt.Errorf("VF representor-on-bridge check failed on %s bridge %s: %w (out=%s)",
+			nodeName, bridge, err, out.String())
+	}
+
+	klog.V(90).Infof("VF representors on bridge %s (%s):\n%s", bridge, nodeName, out.String())
+
+	return nil
+}
+
+// AssertOvsOffloadedFlows runs ovs-appctl dpctl/dump-flows type=offloaded on the node
+// via a privileged hostNetwork debug pod with the host root mounted at /host.
+func AssertOvsOffloadedFlows(nodeName, image string) error {
+	if nodeName == "" {
+		return fmt.Errorf("nodeName cannot be empty")
+	}
+
+	if image == "" {
+		return fmt.Errorf("debug pod image cannot be empty")
+	}
+
+	debugPod, err := newOvsDebugPod(nodeName, image)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_, _ = debugPod.Delete()
+	}()
+
+	out, err := debugPod.ExecCommand([]string{
+		"chroot", "/host", "ovs-appctl", "dpctl/dump-flows", "--names", "type=offloaded",
+	})
+	if err != nil {
+		return fmt.Errorf("ovs-appctl dpctl/dump-flows type=offloaded failed on %s: %w (out=%s)",
+			nodeName, err, out.String())
+	}
+
+	flows := strings.TrimSpace(out.String())
+	if flows == "" {
+		return fmt.Errorf("no offloaded flows on node %s", nodeName)
+	}
+
+	matches := offloadedPacketsRE.FindAllStringSubmatch(flows, -1)
+	if len(matches) == 0 {
+		// Some dumps omit packets:; non-empty offloaded output is still success.
+		return nil
+	}
+
+	for _, m := range matches {
+		packets, convErr := strconv.ParseUint(m[1], 10, 64)
+		if convErr != nil {
+			continue
+		}
+
+		if packets > 0 {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("offloaded flows on %s have zero packet counters:\n%s", nodeName, flows)
+}
+
+func newOvsDebugPod(nodeName, image string) (*pod.Builder, error) {
+	hostPathType := corev1.HostPathDirectory
+	builder := pod.NewBuilder(
+		APIClient,
+		fmt.Sprintf("hwol-ovs-debug-%s", strings.ReplaceAll(nodeName, ".", "-")),
+		tsparams.TestNamespaceName,
+		image,
+	).DefineOnNode(nodeName).
+		WithPrivilegedFlag().
+		WithHostNetwork().
+		WithHostPid(true).
+		// BusyBox images reject GNU "sleep infinity".
+		RedefineDefaultCMD([]string{"sleep", "86400000"}).
+		WithVolume(corev1.Volume{
+			Name: "host",
+			VolumeSource: corev1.VolumeSource{
+				HostPath: &corev1.HostPathVolumeSource{
+					Path: "/",
+					Type: &hostPathType,
+				},
+			},
+		})
+
+	if builder == nil || builder.Definition == nil || len(builder.Definition.Spec.Containers) == 0 {
+		return nil, fmt.Errorf("failed to init OVS debug pod builder")
+	}
+
+	builder.Definition.Spec.Containers[0].VolumeMounts = append(
+		builder.Definition.Spec.Containers[0].VolumeMounts,
+		corev1.VolumeMount{Name: "host", MountPath: "/host", ReadOnly: true},
+	)
+
+	created, err := builder.CreateAndWaitUntilRunning(tsparams.DefaultTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OVS debug pod on %s: %w", nodeName, err)
+	}
+
+	return created, nil
 }
 
 // CleanupHwolResources removes switchdev-created networks, policies, and pool config, then waits for stability.
