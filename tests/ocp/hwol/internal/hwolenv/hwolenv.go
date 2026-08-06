@@ -28,7 +28,11 @@ func MCPNodeSelector(mcpLabel string) map[string]string {
 }
 
 // EnsureHwolOperatorConfig verifies SriovOperatorConfig is set for the
-// manageSoftwareBridges + mlx5 path (disable mellanox plugin, enable OVS offload).
+// manageSoftwareBridges + mlx5 HWOL path (enable OVS offload).
+//
+// Do not disable the mellanox plugin: on some beds CX6 firmware SR-IOV
+// (PCI SR-IOV / TotalVfs) is only enabled by that plugin during Apply.
+// Forcing disablePlugins=[mellanox] left Lab245 stuck at TotalVfs=0.
 func EnsureHwolOperatorConfig(operatorNS string) error {
 	opCfg, err := sriov.PullOperatorConfig(APIClient, operatorNS)
 	if err != nil {
@@ -37,8 +41,8 @@ func EnsureHwolOperatorConfig(operatorNS string) error {
 
 	changed := false
 
-	if !hasDisablePlugin(opCfg.Definition.Spec.DisablePlugins, tsparams.MellanoxPlugin) {
-		opCfg = opCfg.WithDisablePlugins([]string{tsparams.MellanoxPlugin})
+	if len(opCfg.Definition.Spec.DisablePlugins) > 0 {
+		opCfg = opCfg.RemoveDisablePlugins()
 		changed = true
 	}
 
@@ -66,16 +70,6 @@ func EnsureHwolOperatorConfig(operatorNS string) error {
 	}
 
 	return nil
-}
-
-func hasDisablePlugin(plugins sriovv1.PluginNameSlice, name string) bool {
-	for _, plugin := range plugins {
-		if string(plugin) == name {
-			return true
-		}
-	}
-
-	return false
 }
 
 // EnsureSwitchdevFoundation configures operator, pool, and switchdev policy and waits for

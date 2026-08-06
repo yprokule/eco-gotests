@@ -48,8 +48,6 @@ const (
 	SwitchdevMode = "switchdev"
 	// ManageSoftwareBridgesGate is the SriovOperatorConfig feature gate for OVS bridge management.
 	ManageSoftwareBridgesGate = "manageSoftwareBridges"
-	// MellanoxPlugin is the plugin name disabled for the mlx5 / manageSoftwareBridges path.
-	MellanoxPlugin = "mellanox"
 
 	// PoolConfigName is the SriovNetworkPoolConfig created by switchdev tests.
 	PoolConfigName = "hwol-ovs-offload"

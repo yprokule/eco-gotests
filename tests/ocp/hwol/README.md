@@ -142,8 +142,9 @@ export ECO_OCP_HWOL_VF_NUM=3
 make run-tests
 ```
 
-The Ordered HWOL spec ensures `SriovOperatorConfig` (`disablePlugins: [mellanox]`,
-`featureGates.manageSoftwareBridges`, `enableOvsOffload`), creates
+The Ordered HWOL spec ensures `SriovOperatorConfig`
+(`featureGates.manageSoftwareBridges`, `enableOvsOffload`; mellanox plugin left
+enabled so firmware SR-IOV/TotalVfs can be programmed on CX6), creates
 `SriovNetworkPoolConfig` (OvsHardwareOffload only — no parallel
 nodeSelector/maxUnavailable), applies switchdev policy with `bridge.ovs: {}`,
 and waits for MCP/node-state sync. The `switchdev` It asserts
