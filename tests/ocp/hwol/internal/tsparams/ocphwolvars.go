@@ -5,7 +5,6 @@ import (
 	sriovv1 "github.com/k8snetworkplumbingwg/sriov-network-operator/api/v1"
 	"github.com/openshift-kni/k8sreporter"
 	mcfgv1 "github.com/openshift/api/machineconfiguration/v1"
-	. "github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/ocphwolinittools"
 )
 
 var (
@@ -24,8 +23,10 @@ var (
 	}
 
 	// ReporterNamespacesToDump tells the reporter what namespaces to dump on failure.
+	// Use the default operator namespace literal so a nil HwolOcpConfig at package
+	// init does not panic before suite setup can Fail clearly.
 	ReporterNamespacesToDump = map[string]string{
-		HwolOcpConfig.OcpHwolOperatorNamespace: HwolOcpConfig.OcpHwolOperatorNamespace,
-		TestNamespaceName:                      "other",
+		"openshift-sriov-network-operator": "openshift-sriov-network-operator",
+		TestNamespaceName:                  "other",
 	}
 )

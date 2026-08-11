@@ -17,6 +17,9 @@ var _ = Describe(
 	Label(tsparams.LabelSetup),
 	func() {
 		It("verifies operator, devices config, and worker nodes", func() {
+			Expect(HwolOcpConfig).ToNot(BeNil(),
+				"HwolOcpConfig is nil: config init failed (see NewHwolOcpConfig logs)")
+
 			By("Checking the SR-IOV operator is running")
 
 			err := sriovoperator.IsSriovDeployed(APIClient, HwolOcpConfig.OcpHwolOperatorNamespace)

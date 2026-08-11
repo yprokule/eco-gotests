@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -17,7 +18,10 @@ import (
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/ocphwolinittools"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/tsparams"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 type networkStatusEntry struct {
@@ -324,7 +328,11 @@ func deleteAttachNetwork(cniType sriovoperator.CNIType, networkName, operatorNS 
 	case sriovoperator.CNITypeSriov:
 		builder, err := sriov.PullNetwork(APIClient, networkName, operatorNS)
 		if err != nil {
-			return nil
+			if k8serrors.IsNotFound(err) || strings.Contains(err.Error(), "does not exist") {
+				return nil
+			}
+
+			return err
 		}
 
 		return builder.Delete()
@@ -474,26 +482,51 @@ exec iperf3 -s -B "$ip"
 `}
 }
 
-// waitForHwolResource waits until node allocatable openshift.io/hwolresource >= min.
-func waitForHwolResource(nodeName string, min int64, timeout time.Duration) error {
+// waitForHwolResource waits until available openshift.io/hwolresource on the node
+// (allocatable minus non-terminated pod requests) is at least minAvail.
+func waitForHwolResource(nodeName string, minAvail int64, timeout time.Duration) error {
 	resName := corev1.ResourceName(tsparams.ResourceNamePrefix + tsparams.ResourceName)
-	deadline := time.Now().Add(timeout)
 
-	for time.Now().Before(deadline) {
-		node, err := nodes.Pull(APIClient, nodeName)
-		if err != nil {
-			return fmt.Errorf("failed to pull node %s: %w", nodeName, err)
-		}
+	return wait.PollUntilContextTimeout(context.Background(), 5*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			node, err := nodes.Pull(APIClient, nodeName)
+			if err != nil {
+				return false, fmt.Errorf("failed to pull node %s: %w", nodeName, err)
+			}
 
-		qty := node.Object.Status.Allocatable[resName]
-		if qty.Value() >= min {
-			return nil
-		}
+			allocatable := node.Object.Status.Allocatable[resName]
 
-		time.Sleep(5 * time.Second)
-	}
+			nodePods, err := pod.ListInAllNamespaces(APIClient, metav1.ListOptions{
+				FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
+			})
+			if err != nil {
+				return false, fmt.Errorf("failed to list pods on node %s: %w", nodeName, err)
+			}
 
-	return fmt.Errorf("timed out waiting for %s allocatable >= %d on %s", resName, min, nodeName)
+			var requested resource.Quantity
+
+			for _, nodePod := range nodePods {
+				if nodePod.Object == nil {
+					continue
+				}
+
+				phase := nodePod.Object.Status.Phase
+				if phase == corev1.PodSucceeded || phase == corev1.PodFailed {
+					continue
+				}
+
+				for i := range nodePod.Object.Spec.Containers {
+					if qty, ok := nodePod.Object.Spec.Containers[i].Resources.Requests[resName]; ok {
+						requested.Add(qty)
+					}
+				}
+			}
+
+			available := allocatable.DeepCopy()
+			available.Sub(requested)
+
+			return available.Value() >= minAvail, nil
+		})
 }
 
 // runIperfBetweenPods runs the iperf3 client against a server already listening in serverPod

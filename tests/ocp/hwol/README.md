@@ -147,7 +147,7 @@ The Ordered HWOL spec ensures `SriovOperatorConfig`
 enabled so firmware SR-IOV/TotalVfs can be programmed on CX6), creates
 `SriovNetworkPoolConfig` (OvsHardwareOffload only — no parallel
 nodeSelector/maxUnavailable), applies switchdev policy with `bridge.ovs: {}`,
-and waits for MCP/node-state sync. The `switchdev` It asserts
+and waits for MCP/node-state sync. The `switchdev` spec asserts
 `eSwitchMode=switchdev` and a managed OVS bridge uplink. Attach table Entries
 create the network CR, assert NAD type/resource (and bridge for ovs), and run a
 sleep pod. The ovs offload Entry creates two same-node iperf pods, asserts

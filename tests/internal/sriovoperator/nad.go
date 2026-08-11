@@ -9,6 +9,7 @@ import (
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/nad"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -41,12 +42,21 @@ func WaitForNADCreation(apiClient *clients.Settings, name, namespace string, tim
 }
 
 // WaitForNADDeletion waits for the NAD to be deleted.
+// Only NotFound (or eco-goinfra's "does not exist" wrap) ends the wait; other
+// Pull errors keep polling so transient API failures do not false-pass.
 func WaitForNADDeletion(apiClient *clients.Settings, name, namespace string, timeout time.Duration) error {
 	return wait.PollUntilContextTimeout(context.Background(), PollingInterval, timeout, true,
 		func(ctx context.Context) (bool, error) {
 			_, err := nad.Pull(apiClient, name, namespace)
+			if err == nil {
+				return false, nil
+			}
 
-			return err != nil, nil
+			if k8serrors.IsNotFound(err) || strings.Contains(err.Error(), "does not exist") {
+				return true, nil
+			}
+
+			return false, nil
 		})
 }
 

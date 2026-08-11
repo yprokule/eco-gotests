@@ -17,6 +17,7 @@ import (
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/ocphwolinittools"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/tsparams"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -383,42 +384,9 @@ func assertOVSBridgeForPF(bridges sriovv1.Bridges, pfName, pciAddress string) er
 
 var offloadedPacketsRE = regexp.MustCompile(`packets:(\d+)`)
 
-// AssertVFRepresentorsOnBridge maps each VF PCI address to its host representor netdev
-// (PF virtfnN → typically <pf>_<N>) and asserts that representor is an ovs-vsctl port
-// on bridge. Used for the ovs CNI offload path before iperf.
-func AssertVFRepresentorsOnBridge(nodeName, bridge, image string, pciAddrs ...string) error {
-	if nodeName == "" {
-		return fmt.Errorf("nodeName cannot be empty")
-	}
-
-	if bridge == "" {
-		return fmt.Errorf("bridge cannot be empty")
-	}
-
-	if image == "" {
-		return fmt.Errorf("debug pod image cannot be empty")
-	}
-
-	if len(pciAddrs) == 0 {
-		return fmt.Errorf("at least one PCI address is required")
-	}
-
-	for _, pci := range pciAddrs {
-		if strings.TrimSpace(pci) == "" {
-			return fmt.Errorf("PCI address cannot be empty")
-		}
-	}
-
-	debugPod, err := newOvsDebugPod(nodeName, image)
-	if err != nil {
-		return err
-	}
-
-	defer func() {
-		_, _ = debugPod.Delete()
-	}()
-
-	script := `
+// vfRepresentorOnBridgeScript maps each VF PCI address to its host representor
+// netdev and asserts that representor is an ovs-vsctl port on $1.
+const vfRepresentorOnBridgeScript = `
 set -eu
 bridge="$1"
 shift
@@ -550,7 +518,7 @@ func AssertOvsOffloadedFlows(nodeName, image string) error {
 	}
 
 	defer func() {
-		_, _ = debugPod.Delete()
+		_, _ = debugPod.DeleteAndWait(tsparams.DefaultTimeout)
 	}()
 
 	out, err := debugPod.ExecCommand([]string{
@@ -568,7 +536,8 @@ func AssertOvsOffloadedFlows(nodeName, image string) error {
 
 	matches := offloadedPacketsRE.FindAllStringSubmatch(flows, -1)
 	if len(matches) == 0 {
-		// Some dumps omit packets:; non-empty offloaded output is still success.
+		// Success when dump has offloaded flows but omits packets: (some OVS versions);
+		// all-zero packets: counters still fail below.
 		return nil
 	}
 
@@ -646,10 +615,13 @@ func CleanupHwolResources(operatorNS, mcpName string, timeout, stableDuration ti
 		return err
 	}
 
-	if pool, err := sriov.PullPoolConfig(APIClient, tsparams.PoolConfigName, operatorNS); err == nil {
-		if delErr := pool.Delete(); delErr != nil {
-			return fmt.Errorf("failed to delete SriovNetworkPoolConfig %s: %w", tsparams.PoolConfigName, delErr)
+	pool, err := sriov.PullPoolConfig(APIClient, tsparams.PoolConfigName, operatorNS)
+	if err != nil {
+		if !k8serrors.IsNotFound(err) && !strings.Contains(err.Error(), "does not exist") {
+			return fmt.Errorf("failed to pull SriovNetworkPoolConfig %s: %w", tsparams.PoolConfigName, err)
 		}
+	} else if delErr := pool.Delete(); delErr != nil {
+		return fmt.Errorf("failed to delete SriovNetworkPoolConfig %s: %w", tsparams.PoolConfigName, delErr)
 	}
 
 	if err := WaitForSriovAndMCPStable(operatorNS, mcpName, timeout, stableDuration); err != nil {

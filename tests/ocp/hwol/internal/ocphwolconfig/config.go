@@ -126,16 +126,24 @@ func parseHwolDevicesEnv(envDevices string) ([]DeviceConfig, error) {
 			Vendor:        strings.TrimSpace(parts[2]),
 			InterfaceName: strings.TrimSpace(parts[3]),
 		})
+
+		dev := &devices[len(devices)-1]
+		if dev.Name == "" || dev.DeviceID == "" || dev.Vendor == "" || dev.InterfaceName == "" {
+			return nil, fmt.Errorf(
+				"invalid ECO_OCP_HWOL_DEVICES entry %q - name, deviceid, vendor, and interface must be non-empty",
+				entry)
+		}
 	}
 
 	return devices, nil
 }
 
 // GetVFNum returns the configured number of virtual functions.
+// CreateSwitchdevPolicy reserves VF0 and needs at least two workload VFs.
 func (hwolOcpConfig *HwolOcpConfig) GetVFNum() (int, error) {
-	if hwolOcpConfig.VFNum <= 0 {
+	if hwolOcpConfig.VFNum < 2 {
 		return 0, fmt.Errorf(
-			"no HWOL VFs configured, check env var ECO_OCP_HWOL_VF_NUM")
+			"ECO_OCP_HWOL_VF_NUM must be >= 2 (got %d)", hwolOcpConfig.VFNum)
 	}
 
 	return hwolOcpConfig.VFNum, nil

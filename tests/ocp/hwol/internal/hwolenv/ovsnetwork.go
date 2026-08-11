@@ -9,7 +9,6 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/msg"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/ocphwolinittools"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/tsparams"
-	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -162,7 +161,9 @@ func (builder *OvsNetworkBuilder) Exists() bool {
 
 	builder.Object, err = builder.Get()
 
-	return err == nil || !k8serrors.IsNotFound(err)
+	// True only when Get succeeds. Treating non-NotFound errors as "exists"
+	// would skip Create and leave tests assuming a network that was never applied.
+	return err == nil
 }
 
 // Create generates an OVSNetwork in the cluster and stores the created object in the struct.

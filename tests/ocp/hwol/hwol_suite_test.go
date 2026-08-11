@@ -23,6 +23,10 @@ var (
 )
 
 func TestHWOL(t *testing.T) {
+	if HwolOcpConfig == nil {
+		t.Fatal("HwolOcpConfig is nil: config init failed (see NewHwolOcpConfig logs)")
+	}
+
 	_, reporterConfig := GinkgoConfiguration()
 	reporterConfig.JUnitReport = HwolOcpConfig.GetJunitReportPath(currentFile)
 
@@ -31,6 +35,10 @@ func TestHWOL(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	if HwolOcpConfig == nil {
+		Fail("HwolOcpConfig is nil: config init failed (see NewHwolOcpConfig logs)")
+	}
+
 	By("Creating test namespace with privileged labels")
 
 	for key, value := range params.PrivilegedNSLabels {
