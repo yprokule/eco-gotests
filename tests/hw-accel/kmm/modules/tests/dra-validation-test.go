@@ -34,25 +34,17 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 		AfterAll(func() {
 			By("Delete any remaining modules in namespace")
 
-			await.CleanupModules(APIClient,
+			cleanupErr := await.CleanupModules(APIClient,
 				[]string{"test-mutual-exclusion", "test-empty-driver",
 					"test-invalid-driver", "test-dup-deviceclass",
 					"test-valid-volumes", "test-etc-volume", "test-traversal-volume"},
 				nSpace)
+			Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
 
 			By("Delete Namespace")
 
-			err := namespace.NewBuilder(APIClient, nSpace).Delete()
-			Expect(err).ToNot(HaveOccurred(), "error deleting test namespace")
-
-			By("Wait for namespace deletion")
-
-			Eventually(func() bool {
-				_, pullErr := namespace.Pull(APIClient, nSpace)
-
-				return pullErr != nil
-			}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-				"namespace was not deleted in time")
+			nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+			Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 		})
 
 		Context("Mutual Exclusion", Label("dra-validation"), func() {
@@ -260,11 +252,6 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 					err := APIClient.Create(context.TODO(), module)
 					Expect(err).ToNot(HaveOccurred(),
 						"module with valid DRA hostPath volumes should be accepted")
-
-					By("Cleanup: delete the module")
-
-					err = APIClient.Delete(context.TODO(), module)
-					Expect(err).ToNot(HaveOccurred(), "error deleting module")
 				})
 
 			It("should reject Module with DRA hostPath under /etc",

@@ -91,7 +91,8 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			AfterAll(func() {
 				By("Delete Module")
 
-				await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				cleanupErr := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
 
 				By("Await DeviceClass cleanup")
 
@@ -111,17 +112,8 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 				By("Delete Namespace")
 
-				Eventually(func() error {
-					return namespace.NewBuilder(APIClient, nSpace).Delete()
-				}, time.Minute, 10*time.Second).Should(Succeed(),
-					"error deleting test namespace")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
+				nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+				Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 			})
 
 			It("should create both DeviceClasses with ownership labels",
@@ -239,21 +231,13 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			AfterAll(func() {
 				By("Delete any remaining modules in namespace")
 
-				await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				cleanupErr := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
 
 				By("Delete Namespace")
 
-				Eventually(func() error {
-					return namespace.NewBuilder(APIClient, nSpace).Delete()
-				}, time.Minute, 10*time.Second).Should(Succeed(),
-					"error deleting test namespace")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
+				nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+				Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 			})
 
 			It("should run DRA init container, mount custom volume, and set automountServiceAccountToken",
@@ -376,6 +360,9 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					for _, vol := range podSpec.Volumes {
 						if vol.Name == "custom-config" && vol.ConfigMap != nil {
+							Expect(vol.ConfigMap.Name).To(Equal("dra-config"),
+								"custom-config volume should reference dra-config ConfigMap")
+
 							customVolumeFound = true
 
 							break
@@ -384,6 +371,39 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					Expect(customVolumeFound).To(BeTrue(),
 						"DRA DaemonSet should have custom-config volume")
+
+					By("Verify DRA container has custom-config VolumeMount")
+
+					var draContainer *corev1.Container
+
+					for i := range podSpec.Containers {
+						if podSpec.Containers[i].Name == "dra" {
+							draContainer = &podSpec.Containers[i]
+
+							break
+						}
+					}
+
+					Expect(draContainer).ToNot(BeNil(),
+						"DRA DaemonSet should have a dra container")
+
+					mountFound := false
+
+					for _, vm := range draContainer.VolumeMounts {
+						if vm.Name == "custom-config" {
+							Expect(vm.MountPath).To(Equal("/etc/dra-config"),
+								"custom-config mount path should be /etc/dra-config")
+							Expect(vm.ReadOnly).To(BeTrue(),
+								"custom-config mount should be read-only")
+
+							mountFound = true
+
+							break
+						}
+					}
+
+					Expect(mountFound).To(BeTrue(),
+						"DRA container should have custom-config VolumeMount")
 
 					By("Verify automountServiceAccountToken is false")
 
@@ -421,19 +441,11 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			})
 
 			AfterAll(func() {
-				await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				cleanupErr := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
 
-				Eventually(func() error {
-					return namespace.NewBuilder(APIClient, nSpace).Delete()
-				}, time.Minute, 10*time.Second).Should(Succeed(),
-					"error deleting test namespace")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
+				nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+				Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 			})
 
 			It("should propagate tolerations to DRA DaemonSet pods",
@@ -539,19 +551,11 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			})
 
 			AfterAll(func() {
-				await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				cleanupErr := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
 
-				Eventually(func() error {
-					return namespace.NewBuilder(APIClient, nSpace).Delete()
-				}, time.Minute, 10*time.Second).Should(Succeed(),
-					"error deleting test namespace")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
+				nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+				Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 			})
 
 			It("should set priorityClassName system-node-critical on DRA DaemonSet",
@@ -648,19 +652,11 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			})
 
 			AfterAll(func() {
-				await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				cleanupErr := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
 
-				Eventually(func() error {
-					return namespace.NewBuilder(APIClient, nSpace).Delete()
-				}, time.Minute, 10*time.Second).Should(Succeed(),
-					"error deleting test namespace")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
+				nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+				Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 			})
 
 			It("should create DRA DaemonSet with no deviceClasses and report status correctly",
@@ -774,19 +770,11 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			})
 
 			AfterAll(func() {
-				await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				cleanupErr := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
 
-				Eventually(func() error {
-					return namespace.NewBuilder(APIClient, nSpace).Delete()
-				}, time.Minute, 10*time.Second).Should(Succeed(),
-					"error deleting test namespace")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
+				nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+				Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 			})
 
 			It("should propagate imagePullSecrets to DRA DaemonSet pod spec",
@@ -905,19 +893,11 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			})
 
 			AfterAll(func() {
-				await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				cleanupErr := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
 
-				Eventually(func() error {
-					return namespace.NewBuilder(APIClient, nSpace).Delete()
-				}, time.Minute, 10*time.Second).Should(Succeed(),
-					"error deleting test namespace")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
+				nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+				Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 			})
 
 			It("should clean up DRA resources when removing spec.dra during active operation",
