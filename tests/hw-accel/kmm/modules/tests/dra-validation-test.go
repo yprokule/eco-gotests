@@ -3,12 +3,14 @@ package tests
 import (
 	"context"
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/namespace"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/reportxml"
 
+	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/await"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/modules/internal/tsparams"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/internal/inittools"
@@ -30,10 +32,27 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 		})
 
 		AfterAll(func() {
+			By("Delete any remaining modules in namespace")
+
+			await.CleanupModules(APIClient,
+				[]string{"test-mutual-exclusion", "test-empty-driver",
+					"test-invalid-driver", "test-dup-deviceclass",
+					"test-valid-volumes", "test-etc-volume", "test-traversal-volume"},
+				nSpace)
+
 			By("Delete Namespace")
 
 			err := namespace.NewBuilder(APIClient, nSpace).Delete()
 			Expect(err).ToNot(HaveOccurred(), "error deleting test namespace")
+
+			By("Wait for namespace deletion")
+
+			Eventually(func() bool {
+				_, pullErr := namespace.Pull(APIClient, nSpace)
+
+				return pullErr != nil
+			}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
+				"namespace was not deleted in time")
 		})
 
 		Context("Mutual Exclusion", Label("dra-validation"), func() {

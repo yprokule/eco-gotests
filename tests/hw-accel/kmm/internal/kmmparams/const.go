@@ -325,6 +325,18 @@ const (
 	DRADriverName = "gpu.example.com"
 	// DRADeviceClassName represents the default DeviceClass name used in DRA tests.
 	DRADeviceClassName = "test-device-class"
+	// DRAOptionalFeaturesTestNamespace represents test case namespace for DRA optional features tests.
+	DRAOptionalFeaturesTestNamespace = "89709-opt"
+	// DRATolerationTestNamespace represents test case namespace for DRA toleration tests.
+	DRATolerationTestNamespace = "89715-tol"
+	// DRAPriorityTestNamespace represents test case namespace for DRA priority tests.
+	DRAPriorityTestNamespace = "89715-pri"
+	// DRANoDeviceClassTestNamespace represents test case namespace for DRA no-deviceclass tests.
+	DRANoDeviceClassTestNamespace = "89716-nodc"
+	// DRAPullSecretTestNamespace represents test case namespace for DRA pull secret tests.
+	DRAPullSecretTestNamespace = "89716-pull"
+	// DRARemoveActiveTestNamespace represents test case namespace for DRA remove-active tests.
+	DRARemoveActiveTestNamespace = "89716-rmact"
 	// DefaultNodesNamespace represents namespace of the nodes events.
 	DefaultNodesNamespace = "default"
 	// SimpleKmodImage represents the pre-built simple-kmod kernel module image.

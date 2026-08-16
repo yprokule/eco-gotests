@@ -16,6 +16,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -332,6 +333,35 @@ func DRADaemonSetGone(apiClient *clients.Settings, nsName string, timeout time.D
 
 			return len(pods) == 0, nil
 		})
+}
+
+// CleanupModules deletes a list of Module CRs and their associated ClusterRoleBindings,
+// ignoring not-found errors. Used in AfterAll to ensure namespace deletion is not blocked
+// by the KMM admission webhook.
+func CleanupModules(apiClient *clients.Settings, moduleNames []string, nsName string) {
+	for _, modName := range moduleNames {
+		mod := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "kmm.sigs.x-k8s.io/v1beta1",
+				"kind":       "Module",
+				"metadata": map[string]interface{}{
+					"name":      modName,
+					"namespace": nsName,
+				},
+			},
+		}
+
+		err := apiClient.Delete(context.TODO(), mod)
+		if err != nil {
+			klog.V(kmmparams.KmmLogLevel).Infof("module %s may already be deleted: %v", modName, err)
+		} else {
+			_ = ModuleObjectDeleted(apiClient, modName, nsName, time.Minute)
+		}
+
+		crbName := fmt.Sprintf("%s-module-manager-rolebinding", modName)
+		_ = apiClient.K8sClient.RbacV1().ClusterRoleBindings().Delete(
+			context.TODO(), crbName, metav1.DeleteOptions{})
+	}
 }
 
 // MachineConfigCreated awaits MachineConfig to be created.
