@@ -23,6 +23,7 @@ import (
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/internal/inittools"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -436,16 +437,16 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 						_, getErr := APIClient.K8sClient.ResourceV1().DeviceClasses().Get(
 							context.TODO(), deviceClassName, metav1.GetOptions{})
 
-						return getErr != nil
+						return apierrors.IsNotFound(getErr)
 					}, time.Minute, 5*time.Second).Should(BeTrue(),
 						"DeviceClass should be deleted after removing spec.dra")
 
 					By("Verify DRA node label is removed")
 
-					noDRA, err := check.NoDRANodeLabel(APIClient, moduleName, nSpace,
-						GeneralConfig.WorkerLabelMap)
-					Expect(err).ToNot(HaveOccurred(), "error checking DRA node label")
-					Expect(noDRA).To(BeTrue(),
+					Eventually(func() (bool, error) {
+						return check.NoDRANodeLabel(APIClient, moduleName, nSpace,
+							GeneralConfig.WorkerLabelMap)
+					}, time.Minute, 5*time.Second).Should(BeTrue(),
 						"DRA node label should be removed after removing spec.dra")
 
 					By("Verify status.dra is cleared")
@@ -620,9 +621,11 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 					By("Verify user env var comes after preset env vars")
 
 					customIdx := get.DRAContainerEnvIndex(draContainer, "MY_CUSTOM_VAR")
-					healthcheckIdx := get.DRAContainerEnvIndex(draContainer, "HEALTHCHECK_PORT")
-					Expect(customIdx).To(BeNumerically(">", healthcheckIdx),
-						"user-defined env var should come after preset env vars")
+					for _, preset := range kmmparams.DRAPresetEnvNames {
+						presetIdx := get.DRAContainerEnvIndex(draContainer, preset)
+						Expect(customIdx).To(BeNumerically(">", presetIdx),
+							"MY_CUSTOM_VAR should come after preset env var %s", preset)
+					}
 
 					By("Verify GRPC liveness probe")
 
