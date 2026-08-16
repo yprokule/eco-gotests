@@ -1,0 +1,9 @@
+[allowlist]
+  description = "Global Allowlist"
+
+  paths = [
+    # KMM test signing key/cert — CI-only test certificate (O=cdvtest, CN=cdvtest signing key)
+    # used by signing-test.go to verify kernel module signing in ephemeral test namespaces.
+    # Also present in upstream rh-ecosystem-edge/eco-gotests.
+    '''tests/hw-accel/kmm/internal/kmmparams/const\.go$''',
+  ]
