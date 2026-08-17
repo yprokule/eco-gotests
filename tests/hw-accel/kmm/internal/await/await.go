@@ -400,6 +400,10 @@ func CleanupModules(apiClient *clients.Settings, moduleNames []string, nsName st
 		nsObj, nsErr := apiClient.K8sClient.CoreV1().Namespaces().Get(
 			context.TODO(), nsName, metav1.GetOptions{})
 		if nsErr != nil {
+			if !apierrors.IsNotFound(nsErr) {
+				errs = append(errs, fmt.Errorf("getting namespace %s: %w", nsName, nsErr))
+			}
+
 			break
 		}
 
@@ -424,6 +428,11 @@ func CleanupModules(apiClient *clients.Settings, moduleNames []string, nsName st
 
 		klog.V(kmmparams.KmmLogLevel).Infof("conflict removing label from namespace %s, retrying (%d/3)",
 			nsName, attempt+1)
+
+		if attempt == 2 {
+			errs = append(errs, fmt.Errorf("removing contains-modules label from namespace %s: %w",
+				nsName, updateErr))
+		}
 	}
 
 	return errors.Join(errs...)
