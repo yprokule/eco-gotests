@@ -1,6 +1,7 @@
 package get
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,8 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/olm"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/klog/v2"
@@ -371,4 +374,36 @@ func MachineConfigEnvVar(apiClient *clients.Settings, mcName, envVarName string)
 	klog.V(kmmparams.KmmLogLevel).Infof("Found %s=%s in MachineConfig %s", envVarName, value, mcName)
 
 	return value, nil
+}
+
+// DRADaemonSet returns the DRA DaemonSet for a given module, identified by the
+// "{moduleName}-dra-" name prefix.
+func DRADaemonSet(apiClient *clients.Settings, moduleName,
+	nsName string) (*appsv1.DaemonSet, error) {
+	dsList, err := apiClient.K8sClient.AppsV1().DaemonSets(nsName).List(
+		context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("error listing DaemonSets: %w", err)
+	}
+
+	prefix := moduleName + "-dra-"
+
+	for idx := range dsList.Items {
+		if strings.HasPrefix(dsList.Items[idx].Name, prefix) {
+			return &dsList.Items[idx], nil
+		}
+	}
+
+	return nil, fmt.Errorf("DRA DaemonSet with prefix %q not found in namespace %s", prefix, nsName)
+}
+
+// DRAContainer returns the container named "dra" from a pod spec, or nil if not found.
+func DRAContainer(podSpec corev1.PodSpec) *corev1.Container {
+	for idx := range podSpec.Containers {
+		if podSpec.Containers[idx].Name == "dra" {
+			return &podSpec.Containers[idx]
+		}
+	}
+
+	return nil
 }

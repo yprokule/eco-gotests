@@ -337,6 +337,24 @@ func DRADaemonSetGone(apiClient *clients.Settings, nsName string, timeout time.D
 		})
 }
 
+// DeviceClassDeleted awaits a DeviceClass to be deleted.
+func DeviceClassDeleted(apiClient *clients.Settings, name string, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 5*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+			_, err := apiClient.K8sClient.ResourceV1().DeviceClasses().Get(
+				context.TODO(), name, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				return true, nil
+			}
+
+			if err != nil {
+				klog.V(kmmparams.KmmLogLevel).Infof("error checking DeviceClass %s: %v", name, err)
+			}
+
+			return false, nil
+		})
+}
+
 // CleanupModules deletes a list of Module CRs and their associated ClusterRoleBindings.
 // It also removes the kmm.node.k8s.io/contains-modules label from the namespace to
 // prevent the namespace-deletion webhook from blocking namespace cleanup.
@@ -378,19 +396,34 @@ func CleanupModules(apiClient *clients.Settings, moduleNames []string, nsName st
 		}
 	}
 
-	nsObj, nsErr := apiClient.K8sClient.CoreV1().Namespaces().Get(
-		context.TODO(), nsName, metav1.GetOptions{})
-	if nsErr == nil {
-		if _, hasLabel := nsObj.Labels["kmm.node.k8s.io/contains-modules"]; hasLabel {
-			delete(nsObj.Labels, "kmm.node.k8s.io/contains-modules")
-
-			_, updateErr := apiClient.K8sClient.CoreV1().Namespaces().Update(
-				context.TODO(), nsObj, metav1.UpdateOptions{})
-			if updateErr != nil {
-				errs = append(errs, fmt.Errorf("removing contains-modules label from namespace %s: %w",
-					nsName, updateErr))
-			}
+	for attempt := 0; attempt < 3; attempt++ {
+		nsObj, nsErr := apiClient.K8sClient.CoreV1().Namespaces().Get(
+			context.TODO(), nsName, metav1.GetOptions{})
+		if nsErr != nil {
+			break
 		}
+
+		if _, hasLabel := nsObj.Labels["kmm.node.k8s.io/contains-modules"]; !hasLabel {
+			break
+		}
+
+		delete(nsObj.Labels, "kmm.node.k8s.io/contains-modules")
+
+		_, updateErr := apiClient.K8sClient.CoreV1().Namespaces().Update(
+			context.TODO(), nsObj, metav1.UpdateOptions{})
+		if updateErr == nil {
+			break
+		}
+
+		if !apierrors.IsConflict(updateErr) {
+			errs = append(errs, fmt.Errorf("removing contains-modules label from namespace %s: %w",
+				nsName, updateErr))
+
+			break
+		}
+
+		klog.V(kmmparams.KmmLogLevel).Infof("conflict removing label from namespace %s, retrying (%d/3)",
+			nsName, attempt+1)
 	}
 
 	return errors.Join(errs...)
