@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -22,8 +21,6 @@ import (
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/modules/internal/tsparams"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/internal/inittools"
 
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -137,37 +134,19 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			})
 
 			AfterAll(func() {
-				By("Delete Module")
+				By("Cleanup modules and CRB")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
-				err := APIClient.Delete(context.TODO(), module)
-				Expect(err).ToNot(HaveOccurred(), "error deleting module")
-
-				By("Await module deletion")
-
-				err = await.ModuleObjectDeleted(APIClient, moduleName, nSpace, time.Minute)
-				Expect(err).ToNot(HaveOccurred(), "error waiting for module deletion")
-
-				By("Delete ClusterRoleBinding")
+				err := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(err).ToNot(HaveOccurred(), "error cleaning up modules")
 
 				crbName := fmt.Sprintf("%s-module-manager-rolebinding", kmodName)
-				err = APIClient.K8sClient.RbacV1().ClusterRoleBindings().Delete(
+				_ = APIClient.K8sClient.RbacV1().ClusterRoleBindings().Delete(
 					context.TODO(), crbName, metav1.DeleteOptions{})
-				Expect(err).ToNot(HaveOccurred(), "error deleting clusterrolebinding")
 
 				By("Delete Namespace")
 
-				err = namespace.NewBuilder(APIClient, nSpace).Delete()
+				err = namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
 				Expect(err).ToNot(HaveOccurred(), "error deleting namespace")
-
-				By("Wait for namespace deletion")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
 			})
 
 			It("should deploy DRA DaemonSet, DeviceClass, and set node labels",
@@ -192,25 +171,13 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Verify DRA DaemonSet exists and is running")
 
-					dsList, err := APIClient.K8sClient.AppsV1().DaemonSets(nSpace).List(
-						context.TODO(), metav1.ListOptions{})
-					Expect(err).ToNot(HaveOccurred(), "error listing DaemonSets")
-
-					draFound := false
-
-					for _, daemonSet := range dsList.Items {
-						if strings.HasPrefix(daemonSet.Name, moduleName+"-dra-") {
-							draFound = true
-
-							Expect(daemonSet.Status.DesiredNumberScheduled).To(
-								BeNumerically(">", 0), "DRA DaemonSet should have desired pods")
-							Expect(daemonSet.Status.NumberAvailable).To(
-								Equal(daemonSet.Status.DesiredNumberScheduled),
-								"all DRA DaemonSet pods should be available")
-						}
-					}
-
-					Expect(draFound).To(BeTrue(), "DRA DaemonSet should exist")
+					daemonSet, err := get.DRADaemonSet(APIClient, moduleName, nSpace)
+					Expect(err).ToNot(HaveOccurred(), "DRA DaemonSet should exist")
+					Expect(daemonSet.Status.DesiredNumberScheduled).To(
+						BeNumerically(">", 0), "DRA DaemonSet should have desired pods")
+					Expect(daemonSet.Status.NumberAvailable).To(
+						Equal(daemonSet.Status.DesiredNumberScheduled),
+						"all DRA DaemonSet pods should be available")
 
 					By("Verify DeviceClass is created with ownership labels")
 
@@ -345,63 +312,27 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			})
 
 			AfterAll(func() {
-				By("Delete Module")
+				By("Cleanup modules and CRB")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
-
-				err := APIClient.Delete(context.TODO(), module)
-				if err != nil {
-					GinkgoWriter.Printf("module may already be deleted: %v\n", err)
-				}
-
-				By("Await module deletion")
-
-				_ = await.ModuleObjectDeleted(APIClient, moduleName, nSpace, time.Minute)
-
-				By("Delete ClusterRoleBinding")
+				err := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(err).ToNot(HaveOccurred(), "error cleaning up modules")
 
 				crbName := fmt.Sprintf("%s-module-manager-rolebinding", kmodName)
-
-				err = APIClient.K8sClient.RbacV1().ClusterRoleBindings().Delete(
+				_ = APIClient.K8sClient.RbacV1().ClusterRoleBindings().Delete(
 					context.TODO(), crbName, metav1.DeleteOptions{})
-				if err != nil {
-					GinkgoWriter.Printf("CRB may already be deleted: %v\n", err)
-				}
 
 				By("Delete Namespace")
 
-				err = namespace.NewBuilder(APIClient, nSpace).Delete()
-				if err != nil {
-					GinkgoWriter.Printf("namespace may already be deleted: %v\n", err)
-				}
-
-				By("Wait for namespace deletion")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
+				err = namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+				Expect(err).ToNot(HaveOccurred(), "error deleting namespace")
 			})
 
 			It("should clean up DRA resources when spec.dra is removed",
 				reportxml.ID("89704"), func() {
 					By("Verify DRA DaemonSet is running before removal")
 
-					dsList, err := APIClient.K8sClient.AppsV1().DaemonSets(nSpace).List(
-						context.TODO(), metav1.ListOptions{})
-					Expect(err).ToNot(HaveOccurred(), "error listing DaemonSets")
-
-					draFound := false
-
-					for _, daemonSet := range dsList.Items {
-						if strings.HasPrefix(daemonSet.Name, moduleName+"-dra-") {
-							draFound = true
-						}
-					}
-
-					Expect(draFound).To(BeTrue(),
+					_, err := get.DRADaemonSet(APIClient, moduleName, nSpace)
+					Expect(err).ToNot(HaveOccurred(),
 						"DRA DaemonSet should exist before removal")
 
 					By("Verify DeviceClass exists before removal")
@@ -433,12 +364,8 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Verify DeviceClass is deleted")
 
-					Eventually(func() bool {
-						_, getErr := APIClient.K8sClient.ResourceV1().DeviceClasses().Get(
-							context.TODO(), deviceClassName, metav1.GetOptions{})
-
-						return apierrors.IsNotFound(getErr)
-					}, time.Minute, 5*time.Second).Should(BeTrue(),
+					err = await.DeviceClassDeleted(APIClient, deviceClassName, time.Minute)
+					Expect(err).ToNot(HaveOccurred(),
 						"DeviceClass should be deleted after removing spec.dra")
 
 					By("Verify DRA node label is removed")
@@ -524,68 +451,33 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			})
 
 			AfterAll(func() {
-				By("Delete Module")
+				By("Cleanup modules and CRB")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
-				err := APIClient.Delete(context.TODO(), module)
-				Expect(err).ToNot(HaveOccurred(), "error deleting module")
-
-				By("Await module deletion")
-
-				err = await.ModuleObjectDeleted(APIClient, moduleName, nSpace, time.Minute)
-				Expect(err).ToNot(HaveOccurred(), "error waiting for module deletion")
-
-				By("Delete ClusterRoleBinding")
+				err := await.CleanupModules(APIClient, []string{moduleName}, nSpace)
+				Expect(err).ToNot(HaveOccurred(), "error cleaning up modules")
 
 				crbName := fmt.Sprintf("%s-module-manager-rolebinding", kmodName)
-				err = APIClient.K8sClient.RbacV1().ClusterRoleBindings().Delete(
+				_ = APIClient.K8sClient.RbacV1().ClusterRoleBindings().Delete(
 					context.TODO(), crbName, metav1.DeleteOptions{})
-				Expect(err).ToNot(HaveOccurred(), "error deleting clusterrolebinding")
 
 				By("Delete Namespace")
 
-				err = namespace.NewBuilder(APIClient, nSpace).Delete()
+				err = namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
 				Expect(err).ToNot(HaveOccurred(), "error deleting namespace")
-
-				By("Wait for namespace deletion")
-
-				Eventually(func() bool {
-					_, pullErr := namespace.Pull(APIClient, nSpace)
-
-					return pullErr != nil
-				}, 2*time.Minute, 5*time.Second).Should(BeTrue(),
-					"namespace was not deleted in time")
 			})
 
 			It("should have preset env vars, GRPC liveness probe, and hostNetwork",
 				reportxml.ID("89705"), func() {
 					By("Wait for DRA DaemonSet to be created")
 
-					var draDSName string
-
 					Eventually(func() error {
-						dsList, listErr := APIClient.K8sClient.AppsV1().DaemonSets(nSpace).List(
-							context.TODO(), metav1.ListOptions{})
-						if listErr != nil {
-							return fmt.Errorf("error listing DaemonSets: %w", listErr)
-						}
+						_, getErr := get.DRADaemonSet(APIClient, moduleName, nSpace)
 
-						for _, daemonSet := range dsList.Items {
-							if strings.HasPrefix(daemonSet.Name, moduleName+"-dra-") {
-								draDSName = daemonSet.Name
-
-								return nil
-							}
-						}
-
-						return fmt.Errorf("DRA DaemonSet not found yet")
+						return getErr
 					}, 2*time.Minute, 5*time.Second).Should(Succeed(),
 						"DRA DaemonSet should be created")
 
-					By("Get DRA DaemonSet and inspect pod spec")
-
-					daemonSet, err := APIClient.K8sClient.AppsV1().DaemonSets(nSpace).Get(
-						context.TODO(), draDSName, metav1.GetOptions{})
+					daemonSet, err := get.DRADaemonSet(APIClient, moduleName, nSpace)
 					Expect(err).ToNot(HaveOccurred(), "error getting DRA DaemonSet")
 
 					podSpec := daemonSet.Spec.Template.Spec
@@ -597,16 +489,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Verify preset env vars on DRA container")
 
-					var draContainer *corev1.Container
-
-					for idx := range podSpec.Containers {
-						if podSpec.Containers[idx].Name == "dra" {
-							draContainer = &podSpec.Containers[idx]
-
-							break
-						}
-					}
-
+					draContainer := get.DRAContainer(podSpec)
 					Expect(draContainer).ToNot(BeNil(), "DRA container should exist")
 
 					envNames := get.DRAContainerEnvNames(draContainer)
