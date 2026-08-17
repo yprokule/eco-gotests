@@ -20,8 +20,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var buildPod = make(map[string]string)
@@ -199,12 +201,28 @@ func ModuleUndeployed(apiClient *clients.Settings, nsName string, timeout time.D
 func ModuleObjectDeleted(apiClient *clients.Settings, moduleName, nsName string, timeout time.Duration) error {
 	return wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			_, err := kmm.Pull(apiClient, moduleName, nsName)
-			if err != nil {
-				klog.V(kmmparams.KmmLogLevel).Infof("error while pulling the module; most likely it is deleted")
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   "kmm.sigs.x-k8s.io",
+				Version: "v1beta1",
+				Kind:    "Module",
+			})
+
+			err := apiClient.Get(context.TODO(), runtimeClient.ObjectKey{
+				Name:      moduleName,
+				Namespace: nsName,
+			}, obj)
+			if apierrors.IsNotFound(err) {
+				return true, nil
 			}
 
-			return err != nil, nil
+			if err != nil {
+				klog.V(kmmparams.KmmLogLevel).Infof("error checking module %s/%s: %v", nsName, moduleName, err)
+
+				return false, nil
+			}
+
+			return false, nil
 		})
 }
 
