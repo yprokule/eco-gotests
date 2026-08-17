@@ -19,7 +19,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
@@ -109,6 +111,49 @@ func NoDRANodeLabel(apiClient *clients.Settings, moduleName, nsname string,
 	}
 
 	return true, nil
+}
+
+// DRAModuleStatus reads status.dra from an unstructured Module CR and returns
+// (availableNumber, desiredNumber, found, error).
+func DRAModuleStatus(apiClient *clients.Settings, moduleName,
+	nsName string) (int64, int64, bool, error) {
+	moduleObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "kmm.sigs.x-k8s.io/v1beta1",
+			"kind":       "Module",
+			"metadata": map[string]interface{}{
+				"name":      moduleName,
+				"namespace": nsName,
+			},
+		},
+	}
+
+	err := apiClient.Get(context.Background(), types.NamespacedName{
+		Name: moduleName, Namespace: nsName}, moduleObj)
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("error getting module %s/%s: %w", nsName, moduleName, err)
+	}
+
+	draStatus, found, err := unstructured.NestedMap(moduleObj.Object, "status", "dra")
+	if err != nil {
+		return 0, 0, false, fmt.Errorf("error reading status.dra: %w", err)
+	}
+
+	if !found {
+		return 0, 0, false, nil
+	}
+
+	availNum, _, err := unstructured.NestedInt64(draStatus, "availableNumber")
+	if err != nil {
+		return 0, 0, true, fmt.Errorf("error parsing status.dra.availableNumber: %w", err)
+	}
+
+	desiredNum, _, err := unstructured.NestedInt64(draStatus, "desiredNumber")
+	if err != nil {
+		return 0, 0, true, fmt.Errorf("error parsing status.dra.desiredNumber: %w", err)
+	}
+
+	return availNum, desiredNum, true, nil
 }
 
 // ModuleLoaded verifies the module is loaded on the node.

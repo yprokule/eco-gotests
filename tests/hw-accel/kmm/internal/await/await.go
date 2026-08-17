@@ -2,6 +2,7 @@ package await
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -15,10 +16,14 @@ import (
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
+	runtimeClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var buildPod = make(map[string]string)
@@ -196,12 +201,28 @@ func ModuleUndeployed(apiClient *clients.Settings, nsName string, timeout time.D
 func ModuleObjectDeleted(apiClient *clients.Settings, moduleName, nsName string, timeout time.Duration) error {
 	return wait.PollUntilContextTimeout(
 		context.TODO(), time.Second, timeout, true, func(ctx context.Context) (bool, error) {
-			_, err := kmm.Pull(apiClient, moduleName, nsName)
-			if err != nil {
-				klog.V(kmmparams.KmmLogLevel).Infof("error while pulling the module; most likely it is deleted")
+			obj := &unstructured.Unstructured{}
+			obj.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   "kmm.sigs.x-k8s.io",
+				Version: "v1beta1",
+				Kind:    "Module",
+			})
+
+			err := apiClient.Get(context.TODO(), runtimeClient.ObjectKey{
+				Name:      moduleName,
+				Namespace: nsName,
+			}, obj)
+			if apierrors.IsNotFound(err) {
+				return true, nil
 			}
 
-			return err != nil, nil
+			if err != nil {
+				klog.V(kmmparams.KmmLogLevel).Infof("error checking module %s/%s: %v", nsName, moduleName, err)
+
+				return false, nil
+			}
+
+			return false, nil
 		})
 }
 
@@ -332,6 +353,107 @@ func DRADaemonSetGone(apiClient *clients.Settings, nsName string, timeout time.D
 
 			return len(pods) == 0, nil
 		})
+}
+
+// DeviceClassDeleted awaits a DeviceClass to be deleted.
+func DeviceClassDeleted(apiClient *clients.Settings, name string, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 5*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+			_, err := apiClient.K8sClient.ResourceV1().DeviceClasses().Get(
+				context.TODO(), name, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				return true, nil
+			}
+
+			if err != nil {
+				klog.V(kmmparams.KmmLogLevel).Infof("error checking DeviceClass %s: %v", name, err)
+			}
+
+			return false, nil
+		})
+}
+
+// CleanupModules deletes a list of Module CRs and their associated ClusterRoleBindings.
+// It also removes the kmm.node.k8s.io/contains-modules label from the namespace to
+// prevent the namespace-deletion webhook from blocking namespace cleanup.
+// NotFound errors are ignored; all other errors are accumulated and returned.
+func CleanupModules(apiClient *clients.Settings, moduleNames []string, nsName string) error {
+	var errs []error
+
+	for _, modName := range moduleNames {
+		mod := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "kmm.sigs.x-k8s.io/v1beta1",
+				"kind":       "Module",
+				"metadata": map[string]interface{}{
+					"name":      modName,
+					"namespace": nsName,
+				},
+			},
+		}
+
+		err := apiClient.Delete(context.TODO(), mod)
+
+		switch {
+		case err == nil:
+			if waitErr := ModuleObjectDeleted(apiClient, modName, nsName, time.Minute); waitErr != nil {
+				errs = append(errs, fmt.Errorf("waiting for module %s deletion: %w", modName, waitErr))
+			}
+		case apierrors.IsNotFound(err):
+			klog.V(kmmparams.KmmLogLevel).Infof("module %s already deleted", modName)
+		default:
+			errs = append(errs, fmt.Errorf("deleting module %s: %w", modName, err))
+		}
+
+		crbName := fmt.Sprintf("%s-module-manager-rolebinding", modName)
+
+		crbErr := apiClient.K8sClient.RbacV1().ClusterRoleBindings().Delete(
+			context.TODO(), crbName, metav1.DeleteOptions{})
+		if crbErr != nil && !apierrors.IsNotFound(crbErr) {
+			errs = append(errs, fmt.Errorf("deleting CRB %s: %w", crbName, crbErr))
+		}
+	}
+
+	for attempt := 0; attempt < 3; attempt++ {
+		nsObj, nsErr := apiClient.K8sClient.CoreV1().Namespaces().Get(
+			context.TODO(), nsName, metav1.GetOptions{})
+		if nsErr != nil {
+			if !apierrors.IsNotFound(nsErr) {
+				errs = append(errs, fmt.Errorf("getting namespace %s: %w", nsName, nsErr))
+			}
+
+			break
+		}
+
+		if _, hasLabel := nsObj.Labels["kmm.node.k8s.io/contains-modules"]; !hasLabel {
+			break
+		}
+
+		delete(nsObj.Labels, "kmm.node.k8s.io/contains-modules")
+
+		_, updateErr := apiClient.K8sClient.CoreV1().Namespaces().Update(
+			context.TODO(), nsObj, metav1.UpdateOptions{})
+		if updateErr == nil {
+			break
+		}
+
+		if !apierrors.IsConflict(updateErr) {
+			errs = append(errs, fmt.Errorf("removing contains-modules label from namespace %s: %w",
+				nsName, updateErr))
+
+			break
+		}
+
+		klog.V(kmmparams.KmmLogLevel).Infof("conflict removing label from namespace %s, retrying (%d/3)",
+			nsName, attempt+1)
+
+		if attempt == 2 {
+			errs = append(errs, fmt.Errorf("removing contains-modules label from namespace %s: %w",
+				nsName, updateErr))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 // MachineConfigCreated awaits MachineConfig to be created.

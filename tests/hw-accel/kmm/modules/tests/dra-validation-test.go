@@ -3,12 +3,14 @@ package tests
 import (
 	"context"
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/namespace"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/reportxml"
 
+	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/await"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/modules/internal/tsparams"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/internal/inittools"
@@ -30,10 +32,19 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 		})
 
 		AfterAll(func() {
+			By("Delete any remaining modules in namespace")
+
+			cleanupErr := await.CleanupModules(APIClient,
+				[]string{"test-mutual-exclusion", "test-empty-driver",
+					"test-invalid-driver", "test-dup-deviceclass",
+					"test-valid-volumes", "test-etc-volume", "test-traversal-volume"},
+				nSpace)
+			Expect(cleanupErr).ToNot(HaveOccurred(), "error cleaning up modules")
+
 			By("Delete Namespace")
 
-			err := namespace.NewBuilder(APIClient, nSpace).Delete()
-			Expect(err).ToNot(HaveOccurred(), "error deleting test namespace")
+			nsErr := namespace.NewBuilder(APIClient, nSpace).DeleteAndWait(2 * time.Minute)
+			Expect(nsErr).ToNot(HaveOccurred(), "error deleting test namespace")
 		})
 
 		Context("Mutual Exclusion", Label("dra-validation"), func() {
@@ -241,11 +252,6 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 					err := APIClient.Create(context.TODO(), module)
 					Expect(err).ToNot(HaveOccurred(),
 						"module with valid DRA hostPath volumes should be accepted")
-
-					By("Cleanup: delete the module")
-
-					err = APIClient.Delete(context.TODO(), module)
-					Expect(err).ToNot(HaveOccurred(), "error deleting module")
 				})
 
 			It("should reject Module with DRA hostPath under /etc",
