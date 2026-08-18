@@ -407,3 +407,24 @@ func DRAContainer(podSpec corev1.PodSpec) *corev1.Container {
 
 	return nil
 }
+
+// DRAContainerEnvNames returns the env var names from a DRA container.
+func DRAContainerEnvNames(container *corev1.Container) []string {
+	names := make([]string, len(container.Env))
+	for idx, envVar := range container.Env {
+		names[idx] = envVar.Name
+	}
+
+	return names
+}
+
+// DRAContainerEnvIndex returns the index of a named env var in a container, or -1 if not found.
+func DRAContainerEnvIndex(container *corev1.Container, name string) int {
+	for idx, envVar := range container.Env {
+		if envVar.Name == name {
+			return idx
+		}
+	}
+
+	return -1
+}

@@ -45,6 +45,15 @@ var (
 		},
 	}
 
+	// DRAPresetEnvNames represents the preset environment variable names injected by KMM into DRA DaemonSets.
+	DRAPresetEnvNames = []string{
+		"NODE_NAME", "POD_UID", "CDI_ROOT",
+		"KUBELET_REGISTRAR_DIRECTORY_PATH",
+		"KUBELET_PLUGINS_DIRECTORY_PATH",
+		"HEALTHCHECK_PORT",
+		"DRIVER_NAME",
+	}
+
 	// ReasonBuildList represents expected events to be found for a successful build job.
 	ReasonBuildList = []string{ReasonBuildCreated, ReasonBuildStarted, ReasonBuildCompleted, ReasonBuildSucceeded}
 	// ReasonSignList represents expected events to be found for a successful sign job.
