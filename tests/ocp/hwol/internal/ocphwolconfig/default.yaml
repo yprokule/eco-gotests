@@ -1,0 +1,19 @@
+---
+# OCP HWOL Test Suite Default Configuration
+#
+# Devices are NOT configured here. Set ECO_OCP_HWOL_DEVICES at runtime:
+#   name:deviceID:vendor:interface (comma-separated for multiple)
+
+# Workload / traffic image (must include iperf3 for the offload path).
+# OpenShift org Quay image; pin by digest. Prefer openshift/network-tools once it
+# ships iperf3 (https://github.com/openshift/network-tools/pull/189).
+ocp_hwol_test_container: quay.io/openshifttest/iperf3@sha256:440c59251338e9fcf0a00d822878862038d3b2e2403c67c940c7781297953614
+
+# SR-IOV Network Operator namespace
+sriov_operator_namespace: openshift-sriov-network-operator
+
+# Machine Config Pool label for HWOL / switchdev policies
+mcp_label: sriov
+
+# Default number of Virtual Functions (≥3: VF0 reserved + ≥2 workload VFs for offload)
+vf_num: 3

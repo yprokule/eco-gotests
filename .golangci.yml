@@ -157,6 +157,7 @@ linters:
         - github.com/rh-ecosystem-edge/eco-gotests/tests/system-tests/o-cloud/internal/ocloudinittools
         - github.com/rh-ecosystem-edge/eco-gotests/tests/system-tests/o-cloud/internal/ocloudcommon
         - github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/sriov/internal/ocpsriovinittools
+        - github.com/rh-ecosystem-edge/eco-gotests/tests/ocp/hwol/internal/ocphwolinittools
         - github.com/rh-ecosystem-edge/eco-gotests/tests/lca/seedgeneration/internal/seedgenerationinittools
     wsl:
       strict-append: false
@@ -212,6 +213,9 @@ linters:
       - linters:
           - gochecknoinits
         path: tests/ocp/sriov/internal/ocpsriovinittools
+      - linters:
+          - gochecknoinits
+        path: tests/ocp/hwol/internal/ocphwolinittools
       - linters:
           - gochecknoinits
         path: tests/hw-accel/kmm/internal/kmminittools

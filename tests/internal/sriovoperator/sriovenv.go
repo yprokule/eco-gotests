@@ -15,6 +15,8 @@ import (
 const (
 	// SriovStabilizationDelay represents the delay before checking SR-IOV and MCP stability.
 	SriovStabilizationDelay = 10 * time.Second
+	// PollingInterval represents polling interval for wait operations.
+	PollingInterval = 2 * time.Second
 )
 
 var (
