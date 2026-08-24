@@ -263,36 +263,80 @@ func HasPlugin(profile *ptpv1.PtpProfile, pluginType ptp.PluginType) bool {
 	return ok
 }
 
-// GetUpstreamPortForProfile returns the upstream (time-receiving) network port for the profile.
+// GetUpstreamPortsForProfile returns the upstream (time-receiving) network ports for the profile.
+// Dual T-BC configurations list both ports as a comma-separated upstreamPort value.
 //
 // PtpSettings["upstreamPort"] is checked first — it is the mandatory field set by the operator
 // for all GNRD T-BC profiles (E825 plugin path and HardwareConfig path alike). When not present,
 // the function falls back to the E810 plugin interconnections.
-func GetUpstreamPortForProfile(profile *ptpv1.PtpProfile) (iface.Name, error) {
-	if profile.PtpSettings != nil {
+func GetUpstreamPortsForProfile(profile *ptpv1.PtpProfile) ([]iface.Name, error) {
+	if profile != nil && profile.PtpSettings != nil {
 		if port, ok := profile.PtpSettings["upstreamPort"]; ok && port != "" {
-			return iface.Name(port), nil
+			ports := splitUpstreamPorts(port)
+			if len(ports) == 0 {
+				return nil, fmt.Errorf("upstreamPort is empty after parsing")
+			}
+
+			return ports, nil
 		}
 	}
 
-	return GetUpstreamPortFromE810Plugin(profile)
+	return GetUpstreamPortsFromE810Plugin(profile)
 }
 
-// GetUpstreamPortFromE810Plugin returns the upstream port from the E810 plugin's interconnections. Returns the first
-// interconnection entry that has an upstreamPort set.
-func GetUpstreamPortFromE810Plugin(profile *ptpv1.PtpProfile) (iface.Name, error) {
+// GetUpstreamPortForProfile returns the first upstream (time-receiving) network port for the profile.
+func GetUpstreamPortForProfile(profile *ptpv1.PtpProfile) (iface.Name, error) {
+	ports, err := GetUpstreamPortsForProfile(profile)
+	if err != nil {
+		return "", err
+	}
+
+	return ports[0], nil
+}
+
+// GetUpstreamPortsFromE810Plugin returns the upstream ports from the E810 plugin's interconnections.
+// Returns ports from the first interconnection entry that has an upstreamPort set. Comma-separated
+// values are split into individual interface names.
+func GetUpstreamPortsFromE810Plugin(profile *ptpv1.PtpProfile) ([]iface.Name, error) {
 	intelPlugin, err := getIntelPlugin(profile, ptp.PluginTypeE810)
 	if err != nil {
-		return "", fmt.Errorf("failed to get Intel plugin for upstream port: %w", err)
+		return nil, fmt.Errorf("failed to get Intel plugin for upstream port: %w", err)
 	}
 
 	for _, interconnection := range intelPlugin.InputDelays {
 		if interconnection.UpstreamPort != "" {
-			return iface.Name(interconnection.UpstreamPort), nil
+			ports := splitUpstreamPorts(interconnection.UpstreamPort)
+			if len(ports) > 0 {
+				return ports, nil
+			}
 		}
 	}
 
-	return "", fmt.Errorf("no upstream port found in E810 plugin interconnections")
+	return nil, fmt.Errorf("no upstream port found in E810 plugin interconnections")
+}
+
+// GetUpstreamPortFromE810Plugin returns the first upstream port from the E810 plugin's interconnections.
+func GetUpstreamPortFromE810Plugin(profile *ptpv1.PtpProfile) (iface.Name, error) {
+	ports, err := GetUpstreamPortsFromE810Plugin(profile)
+	if err != nil {
+		return "", err
+	}
+
+	return ports[0], nil
+}
+
+// splitUpstreamPorts splits a comma-separated upstreamPort value into interface names.
+func splitUpstreamPorts(port string) []iface.Name {
+	var ports []iface.Name
+
+	for _, part := range strings.Split(port, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			ports = append(ports, iface.Name(part))
+		}
+	}
+
+	return ports
 }
 
 // GetRxInterfaces returns the interfaces configured as RX (pin state 1) in the E810 plugin.

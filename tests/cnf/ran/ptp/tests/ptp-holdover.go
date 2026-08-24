@@ -26,50 +26,10 @@ import (
 
 const holdoverTestTimeout = 7 * time.Minute
 
-var (
-	holdoverPluginSettingsNoOutOfSpec = profiles.HoldoverPluginSettings{
-		LocalHoldoverTimeout:   360,
-		MaxInSpecOffset:        14401,
-		LocalMaxHoldoverOffSet: 14400,
-	}
-	holdoverPluginSettingsWithOutOfSpec = profiles.HoldoverPluginSettings{
-		LocalHoldoverTimeout:   360,
-		MaxInSpecOffset:        1800,
-		LocalMaxHoldoverOffSet: 14400,
-	}
-)
-
-// holdoverTestData groups the per-node test context that is discovered once in BeforeEach and shared
-// by all test cases within a Context block.
-type holdoverTestData struct {
-	prometheusAPI prometheusv1.API
-	nodeName      string
-	profileInfo   *profiles.ProfileInfo
-	upstreamIface iface.Name
-}
-
-// holdoverExpectedClockClasses groups the expected clock class values for each holdover state.
-type holdoverExpectedClockClasses struct {
-	Locked            metrics.PtpClockClass
-	HoldoverInSpec    metrics.PtpClockClass
-	HoldoverOutOfSpec metrics.PtpClockClass
-	Freerun           metrics.PtpClockClass
-}
-
-// TBCClockClasses returns the standard clock class values for T-BC tests.
-func TBCClockClasses() holdoverExpectedClockClasses {
-	return holdoverExpectedClockClasses{
-		Locked:            metrics.ClockClass6,
-		HoldoverInSpec:    metrics.ClockClass135,
-		HoldoverOutOfSpec: metrics.ClockClass165,
-		Freerun:           metrics.ClockClass248,
-	}
-}
-
 // TTSCClockClasses returns clock class values for T-TSC tests on 4.21+. Clock class does not change and
 // remains 255 throughout all states.
-func TTSCClockClasses() holdoverExpectedClockClasses {
-	return holdoverExpectedClockClasses{
+func TTSCClockClasses() profiles.HoldoverExpectedClockClasses {
+	return profiles.HoldoverExpectedClockClasses{
 		Locked:            metrics.ClockClass255,
 		HoldoverInSpec:    metrics.ClockClass255,
 		HoldoverOutOfSpec: metrics.ClockClass255,
@@ -79,8 +39,8 @@ func TTSCClockClasses() holdoverExpectedClockClasses {
 
 // backCompatTTSCClockClasses returns clock class values for T-TSC tests on 4.20, where T-TSC clock class
 // values match T-BC (6, 135, 165, 248).
-func backCompatTTSCClockClasses() holdoverExpectedClockClasses {
-	return TBCClockClasses()
+func backCompatTTSCClockClasses() profiles.HoldoverExpectedClockClasses {
+	return profiles.TBCClockClasses()
 }
 
 var _ = Describe("PTP Holdover", Label(tsparams.LabelTBCTSCHoldover), func() {
@@ -106,7 +66,7 @@ var _ = Describe("PTP Holdover", Label(tsparams.LabelTBCTSCHoldover), func() {
 	})
 
 	Context("t-bc upstream clock loss & unassisted holdover", func() {
-		var testData holdoverTestData
+		var testData profiles.HoldoverTestData
 
 		timeout := holdoverTestTimeout
 
@@ -121,43 +81,43 @@ var _ = Describe("PTP Holdover", Label(tsparams.LabelTBCTSCHoldover), func() {
 			testData = *discovered
 
 			klog.V(tsparams.LogLevel).Infof(
-				"T-BC holdover test on node %s, upstream interface %s", testData.nodeName, testData.upstreamIface)
+				"T-BC holdover test on node %s, upstream interfaces %v", testData.NodeName, testData.UpstreamIfaces)
 		})
 
 		// 83297 - Verifies t-bc transition from holdover-in-spec to locked when upstream clock recovers
 		It("verifies t-bc transition from holdover-in-spec to locked when upstream clock recovers",
 			reportxml.ID("83297"), func() {
-				assertHoldoverInSpecToLocked(testData, holdoverPluginSettingsNoOutOfSpec,
-					timeout, TBCClockClasses(), true)
+				assertHoldoverInSpecToLocked(testData, profiles.HoldoverPluginSettingsNoOutOfSpec,
+					timeout, profiles.TBCClockClasses(), true)
 			})
 
 		// 83298 - Verifies t-bc transition from holdover-in-spec to freerun when localmaxholdoveroffset reached
 		It("verifies t-bc transition from holdover-in-spec to freerun when localmaxholdoveroffset reached",
 			reportxml.ID("83298"), func() {
-				assertHoldoverInSpecToFreerun(testData, holdoverPluginSettingsNoOutOfSpec,
-					timeout, TBCClockClasses(), true)
+				assertHoldoverInSpecToFreerun(testData, profiles.HoldoverPluginSettingsNoOutOfSpec,
+					timeout, profiles.TBCClockClasses(), true)
 			})
 
 		// 83299 - Verifies t-bc transition from holdover-in-spec to holdover-out-of-spec when maxinspecoffset reached
 		It("verifies t-bc transition from holdover-in-spec to holdover-out-of-spec when maxinspecoffset reached",
 			reportxml.ID("83299"), func() {
-				assertHoldoverInSpecToOutOfSpec(testData, holdoverPluginSettingsWithOutOfSpec,
-					timeout, TBCClockClasses(), true)
+				assertHoldoverInSpecToOutOfSpec(testData, profiles.HoldoverPluginSettingsWithOutOfSpec,
+					timeout, profiles.TBCClockClasses(), true)
 			})
 
 		// 83300 - Verifies t-bc transition from holdover-out-of-spec to freerun when localmaxholdoveroffset reached
 		It("verifies t-bc transition from holdover-out-of-spec to freerun when localmaxholdoveroffset reached",
 			reportxml.ID("83300"), func() {
-				assertHoldoverOutOfSpecToFreerun(testData, holdoverPluginSettingsWithOutOfSpec,
-					timeout, TBCClockClasses(), true)
+				assertHoldoverOutOfSpecToFreerun(testData, profiles.HoldoverPluginSettingsWithOutOfSpec,
+					timeout, profiles.TBCClockClasses(), true)
 			})
 	})
 
 	Context("t-tsc upstream clock loss & unassisted holdover", func() {
 		var (
-			testData             holdoverTestData
+			testData             profiles.HoldoverTestData
 			clockClassChanges    bool
-			expectedClockClasses holdoverExpectedClockClasses
+			expectedClockClasses profiles.HoldoverExpectedClockClasses
 		)
 
 		timeout := holdoverTestTimeout
@@ -185,34 +145,34 @@ var _ = Describe("PTP Holdover", Label(tsparams.LabelTBCTSCHoldover), func() {
 			testData = *discovered
 
 			klog.V(tsparams.LogLevel).Infof(
-				"T-TSC holdover test on node %s, upstream interface %s", testData.nodeName, testData.upstreamIface)
+				"T-TSC holdover test on node %s, upstream interfaces %v", testData.NodeName, testData.UpstreamIfaces)
 		})
 
 		// 88274 - Verifies t-tsc transition from holdover-in-spec to locked when upstream clock recovers
 		It("verifies t-tsc transition from holdover-in-spec to locked when upstream clock recovers",
 			reportxml.ID("88274"), func() {
-				assertHoldoverInSpecToLocked(testData, holdoverPluginSettingsNoOutOfSpec,
+				assertHoldoverInSpecToLocked(testData, profiles.HoldoverPluginSettingsNoOutOfSpec,
 					timeout, expectedClockClasses, clockClassChanges)
 			})
 
 		// 88275 - Verifies t-tsc transition from holdover-in-spec to freerun when localmaxholdoveroffset reached
 		It("verifies t-tsc transition from holdover-in-spec to freerun when localmaxholdoveroffset reached",
 			reportxml.ID("88275"), func() {
-				assertHoldoverInSpecToFreerun(testData, holdoverPluginSettingsNoOutOfSpec,
+				assertHoldoverInSpecToFreerun(testData, profiles.HoldoverPluginSettingsNoOutOfSpec,
 					timeout, expectedClockClasses, clockClassChanges)
 			})
 
 		// 88276 - Verifies t-tsc transition from holdover-in-spec to holdover-out-of-spec when maxinspecoffset reached
 		It("verifies t-tsc transition from holdover-in-spec to holdover-out-of-spec when maxinspecoffset reached",
 			reportxml.ID("88276"), func() {
-				assertHoldoverInSpecToOutOfSpec(testData, holdoverPluginSettingsWithOutOfSpec,
+				assertHoldoverInSpecToOutOfSpec(testData, profiles.HoldoverPluginSettingsWithOutOfSpec,
 					timeout, expectedClockClasses, clockClassChanges)
 			})
 
 		// 88277 - Verifies t-tsc transition from holdover-out-of-spec to freerun when localmaxholdoveroffset reached
 		It("verifies t-tsc transition from holdover-out-of-spec to freerun when localmaxholdoveroffset reached",
 			reportxml.ID("88277"), func() {
-				assertHoldoverOutOfSpecToFreerun(testData, holdoverPluginSettingsWithOutOfSpec,
+				assertHoldoverOutOfSpecToFreerun(testData, profiles.HoldoverPluginSettingsWithOutOfSpec,
 					timeout, expectedClockClasses, clockClassChanges)
 			})
 	})
@@ -221,85 +181,85 @@ var _ = Describe("PTP Holdover", Label(tsparams.LabelTBCTSCHoldover), func() {
 // assertHoldoverInSpecToLocked validates that after upstream clock loss the clock enters holdover-in-spec,
 // then recovers to locked when upstream is restored. No FREERUN events should be generated.
 func assertHoldoverInSpecToLocked(
-	testData holdoverTestData,
+	testData profiles.HoldoverTestData,
 	pluginSettings profiles.HoldoverPluginSettings,
 	timeout time.Duration,
-	expected holdoverExpectedClockClasses,
+	expected profiles.HoldoverExpectedClockClasses,
 	clockClassChanges bool,
 ) {
 	GinkgoHelper()
 
 	changeHoldoverSettings(testData, pluginSettings, expected.Locked, clockClassChanges, timeout)
 
-	By("setting upstream clock interface down to enter holdover-in-spec")
+	By("setting upstream clock interfaces down to enter holdover-in-spec")
 
 	ifaceDownTime := time.Now()
 
-	err := iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, testData.nodeName,
-		testData.upstreamIface, iface.InterfaceStateDown)
-	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interface down")
-
 	DeferCleanup(func() {
-		restoreInterfaceAndWaitForRelock(testData.prometheusAPI, testData.nodeName, testData.upstreamIface)
+		restoreInterfacesAndWaitForRelock(testData.PrometheusAPI, testData.NodeName, testData.UpstreamIfaces)
 	})
 
-	assertHoldoverState(testData.prometheusAPI, testData.nodeName, ifaceDownTime,
-		expected.HoldoverInSpec, clockClassChanges, timeout)
+	err := iface.SetInterfacesStatus(RANConfig.Spoke1APIClient,
+		testData.NodeName, testData.UpstreamIfaces, iface.InterfaceStateDown)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interfaces down")
 
-	By("setting upstream clock interface up to return to locked")
+	assertHoldoverState(testData.PrometheusAPI, testData.NodeName, ifaceDownTime,
+		expected.HoldoverInSpec, clockClassChanges, timeout, true)
+
+	By("setting upstream clock interfaces up to return to locked")
 
 	ifaceUpTime := time.Now()
 
-	err = iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, testData.nodeName,
-		testData.upstreamIface, iface.InterfaceStateUp)
-	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interface up")
+	err = iface.SetInterfacesStatus(RANConfig.Spoke1APIClient,
+		testData.NodeName, testData.UpstreamIfaces, iface.InterfaceStateUp)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interfaces up")
 
-	assertLockedState(testData.prometheusAPI, testData.nodeName, ifaceUpTime,
+	assertLockedState(testData.PrometheusAPI, testData.NodeName, ifaceUpTime,
 		expected.Locked, clockClassChanges, timeout)
 
-	assertNoFreerunEvent(testData.nodeName, ifaceUpTime)
+	assertNoFreerunEvent(testData.NodeName, ifaceUpTime)
 }
 
 // assertHoldoverInSpecToFreerun validates that after upstream clock loss the clock enters holdover-in-spec,
 // transitions to freerun when LocalMaxHoldoverOffSet is reached, then recovers to locked when upstream is restored.
 func assertHoldoverInSpecToFreerun(
-	testData holdoverTestData,
+	testData profiles.HoldoverTestData,
 	pluginSettings profiles.HoldoverPluginSettings,
 	timeout time.Duration,
-	expected holdoverExpectedClockClasses,
+	expected profiles.HoldoverExpectedClockClasses,
 	clockClassChanges bool,
 ) {
 	GinkgoHelper()
 
 	changeHoldoverSettings(testData, pluginSettings, expected.Locked, clockClassChanges, timeout)
 
-	By("setting upstream clock interface down to enter holdover-in-spec")
+	By("setting upstream clock interfaces down to enter holdover-in-spec")
 
 	ifaceDownTime := time.Now()
 
-	err := iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, testData.nodeName,
-		testData.upstreamIface, iface.InterfaceStateDown)
-	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interface down")
-
 	DeferCleanup(func() {
-		restoreInterfaceAndWaitForRelock(testData.prometheusAPI, testData.nodeName, testData.upstreamIface)
+		restoreInterfacesAndWaitForRelock(testData.PrometheusAPI, testData.NodeName, testData.UpstreamIfaces)
 	})
 
-	assertHoldoverState(testData.prometheusAPI, testData.nodeName, ifaceDownTime,
-		expected.HoldoverInSpec, clockClassChanges, timeout)
+	err := iface.SetInterfacesStatus(RANConfig.Spoke1APIClient,
+		testData.NodeName, testData.UpstreamIfaces, iface.InterfaceStateDown)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interfaces down")
 
-	assertFreerunState(testData.prometheusAPI, testData.nodeName, ifaceDownTime,
+	assertHoldoverState(testData.PrometheusAPI, testData.NodeName, ifaceDownTime,
+		expected.HoldoverInSpec, clockClassChanges, timeout, true)
+
+	assertFreerunState(testData.PrometheusAPI, testData.NodeName, ifaceDownTime,
 		expected.Freerun, clockClassChanges, timeout)
 
-	By("setting upstream clock interface up to return to locked")
+	By("setting upstream clock interfaces up to return to locked")
 
 	ifaceUpTime := time.Now()
 
-	err = iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, testData.nodeName,
-		testData.upstreamIface, iface.InterfaceStateUp)
-	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interface up")
+	err = iface.SetInterfacesStatus(RANConfig.Spoke1APIClient,
+		testData.NodeName, testData.UpstreamIfaces, iface.InterfaceStateUp)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interfaces up")
 
-	assertLockedState(testData.prometheusAPI, testData.nodeName, ifaceUpTime,
+	assertLockedState(testData.PrometheusAPI, testData.NodeName, ifaceUpTime,
 		expected.Locked, clockClassChanges, timeout)
 }
 
@@ -307,124 +267,99 @@ func assertHoldoverInSpecToFreerun(
 // transitions to holdover-out-of-spec when MaxInSpecOffset is reached, then recovers to locked when upstream
 // is restored. No FREERUN events should be generated.
 func assertHoldoverInSpecToOutOfSpec(
-	testData holdoverTestData,
+	testData profiles.HoldoverTestData,
 	pluginSettings profiles.HoldoverPluginSettings,
 	timeout time.Duration,
-	expected holdoverExpectedClockClasses,
+	expected profiles.HoldoverExpectedClockClasses,
 	clockClassChanges bool,
 ) {
 	GinkgoHelper()
 
 	changeHoldoverSettings(testData, pluginSettings, expected.Locked, clockClassChanges, timeout)
 
-	By("setting upstream clock interface down to enter holdover-in-spec")
+	By("setting upstream clock interfaces down to enter holdover-in-spec")
 
 	ifaceDownTime := time.Now()
 
-	err := iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, testData.nodeName,
-		testData.upstreamIface, iface.InterfaceStateDown)
-	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interface down")
-
 	DeferCleanup(func() {
-		restoreInterfaceAndWaitForRelock(testData.prometheusAPI, testData.nodeName, testData.upstreamIface)
+		restoreInterfacesAndWaitForRelock(testData.PrometheusAPI, testData.NodeName, testData.UpstreamIfaces)
 	})
 
-	assertHoldoverState(testData.prometheusAPI, testData.nodeName, ifaceDownTime,
-		expected.HoldoverInSpec, clockClassChanges, timeout)
+	err := iface.SetInterfacesStatus(RANConfig.Spoke1APIClient,
+		testData.NodeName, testData.UpstreamIfaces, iface.InterfaceStateDown)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interfaces down")
 
-	assertHoldoverOutOfSpecClockClass(testData.prometheusAPI, testData.nodeName, ifaceDownTime,
+	assertHoldoverState(testData.PrometheusAPI, testData.NodeName, ifaceDownTime,
+		expected.HoldoverInSpec, clockClassChanges, timeout, true)
+
+	assertHoldoverOutOfSpecClockClass(testData.PrometheusAPI, testData.NodeName, ifaceDownTime,
 		expected.HoldoverOutOfSpec, clockClassChanges, timeout)
 
-	By("setting upstream clock interface up to return to locked")
+	By("setting upstream clock interfaces up to return to locked")
 
 	ifaceUpTime := time.Now()
 
-	err = iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, testData.nodeName,
-		testData.upstreamIface, iface.InterfaceStateUp)
-	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interface up")
+	err = iface.SetInterfacesStatus(RANConfig.Spoke1APIClient,
+		testData.NodeName, testData.UpstreamIfaces, iface.InterfaceStateUp)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interfaces up")
 
-	assertLockedState(testData.prometheusAPI, testData.nodeName, ifaceUpTime,
+	assertLockedState(testData.PrometheusAPI, testData.NodeName, ifaceUpTime,
 		expected.Locked, clockClassChanges, timeout)
 
-	assertNoFreerunEvent(testData.nodeName, ifaceUpTime)
+	assertNoFreerunEvent(testData.NodeName, ifaceUpTime)
 }
 
 // assertHoldoverOutOfSpecToFreerun validates the full cascade: holdover-in-spec -> holdover-out-of-spec -> freerun,
 // then recovery to locked when upstream is restored.
 func assertHoldoverOutOfSpecToFreerun(
-	testData holdoverTestData,
+	testData profiles.HoldoverTestData,
 	pluginSettings profiles.HoldoverPluginSettings,
 	timeout time.Duration,
-	expected holdoverExpectedClockClasses,
+	expected profiles.HoldoverExpectedClockClasses,
 	clockClassChanges bool,
 ) {
 	GinkgoHelper()
 
 	changeHoldoverSettings(testData, pluginSettings, expected.Locked, clockClassChanges, timeout)
 
-	By("setting upstream clock interface down to enter holdover-in-spec")
+	By("setting upstream clock interfaces down to enter holdover-in-spec")
 
 	ifaceDownTime := time.Now()
 
-	err := iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, testData.nodeName,
-		testData.upstreamIface, iface.InterfaceStateDown)
-	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interface down")
-
 	DeferCleanup(func() {
-		restoreInterfaceAndWaitForRelock(testData.prometheusAPI, testData.nodeName, testData.upstreamIface)
+		restoreInterfacesAndWaitForRelock(testData.PrometheusAPI, testData.NodeName, testData.UpstreamIfaces)
 	})
 
-	assertHoldoverState(testData.prometheusAPI, testData.nodeName, ifaceDownTime,
-		expected.HoldoverInSpec, clockClassChanges, timeout)
+	err := iface.SetInterfacesStatus(RANConfig.Spoke1APIClient,
+		testData.NodeName, testData.UpstreamIfaces, iface.InterfaceStateDown)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interfaces down")
 
-	assertHoldoverOutOfSpecClockClass(testData.prometheusAPI, testData.nodeName, ifaceDownTime,
+	assertHoldoverState(testData.PrometheusAPI, testData.NodeName, ifaceDownTime,
+		expected.HoldoverInSpec, clockClassChanges, timeout, true)
+
+	assertHoldoverOutOfSpecClockClass(testData.PrometheusAPI, testData.NodeName, ifaceDownTime,
 		expected.HoldoverOutOfSpec, clockClassChanges, timeout)
 
-	assertFreerunState(testData.prometheusAPI, testData.nodeName, ifaceDownTime,
+	assertFreerunState(testData.PrometheusAPI, testData.NodeName, ifaceDownTime,
 		expected.Freerun, clockClassChanges, timeout)
 
-	By("setting upstream clock interface up to return to locked")
+	By("setting upstream clock interfaces up to return to locked")
 
 	ifaceUpTime := time.Now()
 
-	err = iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, testData.nodeName,
-		testData.upstreamIface, iface.InterfaceStateUp)
-	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interface up")
+	err = iface.SetInterfacesStatus(RANConfig.Spoke1APIClient,
+		testData.NodeName, testData.UpstreamIfaces, iface.InterfaceStateUp)
+	Expect(err).ToNot(HaveOccurred(), "Failed to set upstream clock interfaces up")
 
-	assertLockedState(testData.prometheusAPI, testData.nodeName, ifaceUpTime,
+	assertLockedState(testData.PrometheusAPI, testData.NodeName, ifaceUpTime,
 		expected.Locked, clockClassChanges, timeout)
 }
 
-// restoreInterfaceAndWaitForRelock brings the upstream interface back up and waits for the T-BC clock to return
-// to LOCKED state with a 5-second stable duration, matching the OC 2-port restore pattern. The process label
-// is T-BC because the linuxptp-daemon uses the clockType from PtpSettings (set to "T-BC" for T-BC profiles)
-// as the process label for clock state metrics. T-TSC profiles use the same shared helpers and the same process
-// label because cnf-gotests uses ProcessTBC for both T-BC and T-TSC holdover metric assertions.
-func restoreInterfaceAndWaitForRelock(
-	prometheusAPI prometheusv1.API,
-	nodeName string,
-	upstreamIface iface.Name,
-) {
-	GinkgoHelper()
-
-	By("restoring upstream interface and waiting for relock")
-
-	err := iface.SetInterfaceStatus(RANConfig.Spoke1APIClient, nodeName,
-		upstreamIface, iface.InterfaceStateUp)
-	Expect(err).ToNot(HaveOccurred(), "Failed to restore upstream clock interface")
-
-	clockStateQuery := metrics.ClockStateQuery{
-		Node:    metrics.Equals(nodeName),
-		Process: metrics.Equals(metrics.ProcessTBC),
-	}
-	err = metrics.AssertQuery(context.TODO(), prometheusAPI, clockStateQuery, metrics.ClockStateLocked,
-		metrics.AssertWithStableDuration(5*time.Second),
-		metrics.AssertWithTimeout(3*time.Minute))
-	Expect(err).ToNot(HaveOccurred(), "Clock did not return to LOCKED after restoration")
-}
-
 // assertHoldoverState waits for the HOLDOVER event and optional clock class change event, then validates
-// the corresponding Prometheus metrics.
+// the corresponding Prometheus metrics when checkMetrics is true. When checkMetrics is false the function
+// returns after the event checks, skipping the Prometheus metric assertions. This is useful for scenarios
+// such as dual T-BC failover where the clock may re-lock from a backup upstream port before the metric
+// query runs.
 func assertHoldoverState(
 	prometheusAPI prometheusv1.API,
 	nodeName string,
@@ -432,6 +367,7 @@ func assertHoldoverState(
 	expectedClockClass metrics.PtpClockClass,
 	clockClassChanges bool,
 	timeout time.Duration,
+	checkMetrics bool,
 ) {
 	GinkgoHelper()
 
@@ -456,6 +392,10 @@ func assertHoldoverState(
 		)
 		err = events.WaitForEvent(eventPod, sinceTime, timeout, clockClassFilter)
 		Expect(err).ToNot(HaveOccurred(), "Failed to wait for clock class %d event", expectedClockClass)
+	}
+
+	if !checkMetrics {
+		return
 	}
 
 	By(fmt.Sprintf("validating metrics: clock class %d, clock state HOLDOVER", expectedClockClass))
@@ -661,7 +601,7 @@ func assertNoFreerunEvent(nodeName string, sinceTime time.Time) {
 // Routes through HardwareConfig CR on 4.22+/GNRD or PtpConfig plugin on pre-4.22.
 // No-op when desired already matches current; restores originals via DeferCleanup.
 func changeHoldoverSettings(
-	testData holdoverTestData,
+	testData profiles.HoldoverTestData,
 	desired profiles.HoldoverPluginSettings,
 	expectedLockedClass metrics.PtpClockClass,
 	clockClassChanges bool,
@@ -669,7 +609,7 @@ func changeHoldoverSettings(
 ) {
 	GinkgoHelper()
 
-	current, err := profiles.GetHoldoverSettings(RANConfig.Spoke1APIClient, testData.profileInfo)
+	current, err := profiles.GetHoldoverSettings(RANConfig.Spoke1APIClient, testData.ProfileInfo)
 	Expect(err).ToNot(HaveOccurred(), "Failed to get current holdover settings")
 
 	if desired == *current {
@@ -680,36 +620,36 @@ func changeHoldoverSettings(
 
 	By("setting test case holdover settings")
 
-	err = profiles.ApplyHoldoverSettings(RANConfig.Spoke1APIClient, testData.profileInfo, desired)
+	err = profiles.ApplyHoldoverSettings(RANConfig.Spoke1APIClient, testData.ProfileInfo, desired)
 	Expect(err).ToNot(HaveOccurred(), "Failed to apply holdover settings")
 
 	DeferCleanup(func() {
 		By("restoring original holdover settings")
 
-		restoreErr := profiles.ApplyHoldoverSettings(RANConfig.Spoke1APIClient, testData.profileInfo, original)
+		restoreErr := profiles.ApplyHoldoverSettings(RANConfig.Spoke1APIClient, testData.ProfileInfo, original)
 		Expect(restoreErr).ToNot(HaveOccurred(), "Failed to restore holdover settings")
 
 		restoreTime := time.Now()
 
 		restoreErr = profiles.WaitForHoldoverSettingsApplied(
-			RANConfig.Spoke1APIClient, testData.nodeName, testData.profileInfo, restoreTime, 5*time.Minute)
+			RANConfig.Spoke1APIClient, testData.NodeName, testData.ProfileInfo, restoreTime, 5*time.Minute)
 		Expect(restoreErr).ToNot(HaveOccurred(), "Daemon did not reload after restore")
 
 		restoreTime = time.Now()
 
-		assertLockedState(testData.prometheusAPI, testData.nodeName, restoreTime,
+		assertLockedState(testData.PrometheusAPI, testData.NodeName, restoreTime,
 			expectedLockedClass, clockClassChanges, timeout)
 	})
 
 	setTime := time.Now()
 
 	err = profiles.WaitForHoldoverSettingsApplied(
-		RANConfig.Spoke1APIClient, testData.nodeName, testData.profileInfo, setTime, 3*time.Minute)
+		RANConfig.Spoke1APIClient, testData.NodeName, testData.ProfileInfo, setTime, 3*time.Minute)
 	Expect(err).ToNot(HaveOccurred(), "Daemon did not reload after config change")
 
 	setTime = time.Now()
 
-	assertLockedState(testData.prometheusAPI, testData.nodeName, setTime,
+	assertLockedState(testData.PrometheusAPI, testData.NodeName, setTime,
 		expectedLockedClass, clockClassChanges, timeout)
 }
 
@@ -719,7 +659,7 @@ func changeHoldoverSettings(
 func discoverHoldoverTestData(
 	prometheusAPI prometheusv1.API,
 	profileType profiles.PtpProfileType,
-) *holdoverTestData {
+) *profiles.HoldoverTestData {
 	nodeInfoMap, err := profiles.GetNodeInfoMap(RANConfig.Spoke1APIClient)
 	Expect(err).ToNot(HaveOccurred(), "Failed to get node info map")
 
@@ -736,23 +676,50 @@ func discoverHoldoverTestData(
 				continue
 			}
 
-			port, portErr := profiles.GetUpstreamPortForProfile(ptpProfile)
+			ports, portErr := profiles.GetUpstreamPortsForProfile(ptpProfile)
 			if portErr != nil {
 				klog.V(tsparams.LogLevel).Infof(
-					"Skipping profile %s on node %s: cannot determine upstream port: %v",
+					"Skipping profile %s on node %s: cannot determine upstream ports: %v",
 					profileInfo.Reference.ProfileName, name, portErr)
 
 				continue
 			}
 
-			return &holdoverTestData{
-				prometheusAPI: prometheusAPI,
-				nodeName:      name,
-				profileInfo:   profileInfo,
-				upstreamIface: port,
+			return &profiles.HoldoverTestData{
+				PrometheusAPI:  prometheusAPI,
+				NodeName:       name,
+				ProfileInfo:    profileInfo,
+				UpstreamIfaces: ports,
 			}
 		}
 	}
 
 	return nil
+}
+
+// restoreInterfacesAndWaitForRelock brings the upstream interfaces back up and waits for the T-BC clock to return
+// to LOCKED state with a 5-second stable duration, matching the OC 2-port restore pattern. The process label
+// is T-BC because the linuxptp-daemon uses the clockType from PtpSettings (set to "T-BC" for T-BC profiles)
+// as the process label for clock state metrics. T-TSC profiles use the same shared helpers and the same process
+// label because cnf-gotests uses ProcessTBC for both T-BC and T-TSC holdover metric assertions.
+func restoreInterfacesAndWaitForRelock(
+	prometheusAPI prometheusv1.API,
+	nodeName string,
+	upstreamIfaces []iface.Name,
+) {
+	GinkgoHelper()
+
+	By("restoring upstream interfaces and waiting for relock")
+
+	err := iface.SetInterfacesStatus(RANConfig.Spoke1APIClient, nodeName, upstreamIfaces, iface.InterfaceStateUp)
+	Expect(err).ToNot(HaveOccurred(), "Failed to restore upstream clock interfaces")
+
+	clockStateQuery := metrics.ClockStateQuery{
+		Node:    metrics.Equals(nodeName),
+		Process: metrics.Equals(metrics.ProcessTBC),
+	}
+	err = metrics.AssertQuery(context.TODO(), prometheusAPI, clockStateQuery, metrics.ClockStateLocked,
+		metrics.AssertWithStableDuration(5*time.Second),
+		metrics.AssertWithTimeout(3*time.Minute))
+	Expect(err).ToNot(HaveOccurred(), "Clock did not return to LOCKED after restoration")
 }
