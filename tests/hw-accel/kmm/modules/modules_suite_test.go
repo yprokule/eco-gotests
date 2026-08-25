@@ -14,6 +14,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/serviceaccount"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/define"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/get"
+	. "github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmminittools"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/internal/inittools"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/internal/reporter"
@@ -45,6 +46,14 @@ func TestModules(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	By("Prepare environment for KMM tests execution")
+
+	By("Resolve DRA driver image for cluster k8s version")
+
+	serverVersion, err := APIClient.K8sClient.Discovery().ServerVersion()
+	Expect(err).ToNot(HaveOccurred(), "error getting server version")
+	kmmparams.SetDRADriverImage(ModulesConfig.DRADriverImageRepo, serverVersion.GitVersion)
+	klog.V(kmmparams.KmmLogLevel).Infof("Resolved DRA driver image: %s (k8s %s)",
+		kmmparams.DRADriverImage, serverVersion.GitVersion)
 
 	By("Create helper ServiceAccount")
 
