@@ -19,9 +19,6 @@ var (
 	// KmmHubSelector represents MCM object generic selector.
 	KmmHubSelector = map[string]string{"cluster.open-cluster-management.io/clusterset": "default"}
 
-	// KmmNonexistentSpokeSelector is used by hub webhook tests that must not target a real spoke.
-	KmmNonexistentSpokeSelector = map[string]string{"name": "nonexistent-spoke"}
-
 	// KmmTestHelperLabelName represents label set on the helper resources.
 	KmmTestHelperLabelName = "kmm-test-helper"
 
