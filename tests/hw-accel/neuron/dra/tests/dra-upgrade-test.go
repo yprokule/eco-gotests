@@ -69,12 +69,14 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 
 				if existingDC, _ := neuron.Pull(
 					APIClient, params.DefaultDeviceConfigName, params.NeuronNamespace); existingDC != nil {
-					if existingDC.Definition.Spec.DRADriverImage != "" {
-						originalImage = existingDC.Definition.Spec.DRADriverImage
+					if existingDC.Definition.Spec.DRADriverImage == neuronCfg.DRADriverImage {
+						originalImage = neuronCfg.DRADriverImage
 
 						klog.V(params.NeuronLogLevel).Infof(
-							"Existing DRA DeviceConfig found with image: %s", originalImage)
+							"Existing DRA DeviceConfig already uses initial image: %s", originalImage)
 					} else {
+						By("Deleting existing DeviceConfig to normalize to initial DRA image")
+
 						_, err := existingDC.Delete()
 						Expect(err).ToNot(HaveOccurred())
 
@@ -89,6 +91,8 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 
 				if originalImage == "" {
 					originalImage = neuronCfg.DRADriverImage
+
+					By("Creating DRA DeviceConfig with initial image")
 
 					builder := neuron.NewBuilderWithDRA(
 						APIClient,
@@ -151,11 +155,12 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 
 					By("Verifying Module spec.dra.container.image updated")
 
-					Eventually(func(g Gomega) string {
+					Eventually(func() string {
 						module, pullErr := kmm.Pull(
 							APIClient, params.DefaultDeviceConfigName, params.NeuronNamespace)
-						g.Expect(pullErr).ToNot(HaveOccurred())
-						g.Expect(module.Object.Spec.DRA).ToNot(BeNil())
+						if pullErr != nil || module.Object.Spec.DRA == nil {
+							return ""
+						}
 
 						return module.Object.Spec.DRA.Container.Image
 					}, upgradePollTimeout, 5*time.Second).Should(
@@ -167,17 +172,20 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 				reportxml.ID("90511"), func() {
 					By("Waiting for a ready DRA DaemonSet with the upgrade image and the old DS gone")
 
-					Eventually(func(g Gomega) {
+					Eventually(func() bool {
 						dsList, listErr := APIClient.K8sClient.AppsV1().DaemonSets(
 							params.NeuronNamespace).List(
 							context.TODO(), metav1.ListOptions{
 								LabelSelector: fmt.Sprintf("%s=%s",
 									params.DRADaemonSetLabelKey, params.DRADaemonSetLabelValue),
 							})
-						g.Expect(listErr).ToNot(HaveOccurred())
+						if listErr != nil {
+							return false
+						}
 
 						oldGone := true
-						newReady := false
+
+						var newReady bool
 
 						for idx := range dsList.Items {
 							currentDS := &dsList.Items[idx]
@@ -186,21 +194,17 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 								oldGone = false
 							}
 
-							draContainer := currentDS.Spec.Template.Spec.Containers[0]
-
-							if draContainer.Image == neuronCfg.UpgradeDRADriverImage &&
+							if len(currentDS.Spec.Template.Spec.Containers) > 0 &&
+								currentDS.Spec.Template.Spec.Containers[0].Image == neuronCfg.UpgradeDRADriverImage &&
 								currentDS.Status.DesiredNumberScheduled > 0 &&
 								currentDS.Status.NumberReady == currentDS.Status.DesiredNumberScheduled {
 								newReady = true
 							}
 						}
 
-						g.Expect(oldGone).To(BeTrue(),
-							"Old DRA DaemonSet %s should be garbage collected", originalDSName)
-						g.Expect(newReady).To(BeTrue(),
-							"A ready DRA DaemonSet with image %s should exist",
-							neuronCfg.UpgradeDRADriverImage)
-					}, upgradeTimeout, 10*time.Second).Should(Succeed())
+						return oldGone && newReady
+					}, upgradeTimeout, 10*time.Second).Should(BeTrue(),
+						"Old DRA DaemonSet should be GC'd and new one with upgrade image should be ready")
 
 					By("Verifying the DRA container has the upgrade image")
 

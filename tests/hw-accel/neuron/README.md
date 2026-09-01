@@ -127,7 +127,7 @@ Notes:
 | Variable | Description |
 |----------|-------------|
 | `ECO_HWACCEL_NEURON_DRA_DRIVER_IMAGE` | **REQUIRED for DRA tests** - DRA driver image (e.g., `public.ecr.aws/neuron/neuron-dra-driver:1.0.1`). When set, DRA tests are enabled and device-plugin mode tests are skipped. |
-| `ECO_HWACCEL_NEURON_DRA_UPGRADE_DRIVER_IMAGE` | Target DRA driver image for upgrade tests. Required for `dra-upgrade` labeled tests. |
+| `ECO_HWACCEL_NEURON_DRA_UPGRADE_DRIVER_IMAGE` | Target DRA driver image for `dra-upgrade`-labeled tests. Must differ from `ECO_HWACCEL_NEURON_DRA_DRIVER_IMAGE`; identical values skip all upgrade tests. |
 
 #### General Test Framework Variables
 
