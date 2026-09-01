@@ -67,7 +67,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 				By("Create Module with moduleLoader and devicePlugin (no DRA)")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 					"selector": GeneralConfig.WorkerLabelMap,
 					"moduleLoader": map[string]interface{}{
 						"container": map[string]interface{}{
@@ -96,7 +96,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 					},
 					"devicePlugin": map[string]interface{}{
 						"container": map[string]interface{}{
-							"image":   "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+							"image":   kmmparams.DRATestImage,
 							"command": []interface{}{"sleep", "3600"},
 						},
 					},
@@ -120,7 +120,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			AfterAll(func() {
 				By("Delete Module")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{})
 				err := APIClient.Delete(context.TODO(), module)
 				Expect(err).ToNot(HaveOccurred(), "error deleting module")
 
@@ -197,13 +197,11 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 				By("Create Module with only spec.dra (no moduleLoader)")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 					"selector": GeneralConfig.WorkerLabelMap,
 					"dra": map[string]interface{}{
 						"driverName": kmmparams.DRADriverName,
-						"container": map[string]interface{}{
-							"image": kmmparams.DRADriverImage,
-						},
+						"container":  define.DRAContainer(nil),
 					},
 				})
 
@@ -214,7 +212,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 			AfterAll(func() {
 				By("Delete Module")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{})
 				err := APIClient.Delete(context.TODO(), module)
 				Expect(err).ToNot(HaveOccurred(), "error deleting module")
 

@@ -321,6 +321,11 @@ const (
 	DRAPresetEnvTestNamespace = "89705-env"
 	// DRADriverName represents the DRA driver name used in tests.
 	DRADriverName = "gpu.example.com"
+	// DRAHealthcheckPort is the gRPC healthcheck port for the example DRA driver.
+	// KMM defaults to 51515, which collides on hostNetwork with other DRA drivers
+	// (for example Neuron). Tests override HEALTHCHECK_PORT; KMM still hardcodes
+	// the DaemonSet liveness probe to 51515.
+	DRAHealthcheckPort = 52515
 	// DRADeviceClassName represents the default DeviceClass name used in DRA tests.
 	DRADeviceClassName = "test-device-class"
 	// DRAUpgradeTestNamespace represents test case namespace for DRA ordered upgrade tests.
@@ -341,6 +346,12 @@ const (
 	DRAPullSecretTestNamespace = "89716-pull"
 	// DRARemoveActiveTestNamespace represents test case namespace for DRA remove-active tests.
 	DRARemoveActiveTestNamespace = "89716-rmact"
+	// DRASchedulingTestNamespace represents test case namespace for DRA consumer scheduling tests.
+	DRASchedulingTestNamespace = "89712-sched"
+	// DRATestImage represents a generic container image used in DRA webhook tests.
+	DRATestImage = "registry.k8s.io/e2e-test-images/busybox:1.36.1-1"
+	// UBIMinimalImage represents UBI 9 minimal image used by DRA consumer pods.
+	UBIMinimalImage = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
 	// DefaultNodesNamespace represents namespace of the nodes events.
 	DefaultNodesNamespace = "default"
 	// SimpleKmodImage represents the pre-built simple-kmod kernel module image.

@@ -11,6 +11,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/kmm"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/nodes"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/resource"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/get"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmminittools"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
@@ -678,4 +679,24 @@ func runCommandOnTestPodsOnNode(apiClient *clients.Settings,
 
 			return false, nil
 		})
+}
+
+// ResourceClaimAllocated reports whether at least one ResourceClaim in the namespace has an allocation.
+func ResourceClaimAllocated(apiClient *clients.Settings, nsname string) (bool, error) {
+	claims, err := resource.ListResourceClaims(apiClient, nsname)
+	if err != nil {
+		return false, err
+	}
+
+	if len(claims) == 0 {
+		return false, fmt.Errorf("no ResourceClaims found in namespace %s", nsname)
+	}
+
+	for _, claim := range claims {
+		if claim.Object.Status.Allocation != nil {
+			return true, nil
+		}
+	}
+
+	return false, fmt.Errorf("no allocated ResourceClaim in namespace %s", nsname)
 }

@@ -57,7 +57,9 @@ var _ = BeforeSuite(func() {
 	By("Prepare environment spoke for KMM-HUB tests execution")
 
 	if ModulesConfig.SpokeClusterName == "" || ModulesConfig.SpokeKubeConfig == "" {
-		Skip("Skipping test. No Spoke environment variables defined.")
+		klog.V(kmmparams.KmmLogLevel).Infof("No spoke environment variables defined, skipping spoke setup")
+
+		return
 	}
 
 	By("Create helper ServiceAccount")
@@ -105,6 +107,13 @@ var _ = BeforeSuite(func() {
 
 var _ = AfterSuite(func() {
 	By("Cleanup environment after KMM tests execution")
+
+	if ModulesConfig == nil || ModulesConfig.SpokeClusterName == "" || ModulesConfig.SpokeKubeConfig == "" {
+		klog.V(kmmparams.KmmLogLevel).Infof("Spoke not configured, skipping cleanup")
+
+		return
+	}
+
 	klog.V(kmmparams.KmmLogLevel).Infof("Deleting test deployments")
 
 	By("Delete helper deployments")

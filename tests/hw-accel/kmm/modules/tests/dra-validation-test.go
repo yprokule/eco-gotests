@@ -11,11 +11,10 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/reportxml"
 
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/await"
+	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/define"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/modules/internal/tsparams"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/internal/inittools"
-
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSanity), func() {
@@ -58,7 +57,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				reportxml.ID("89701"), func() {
 					By("Create Module with both spec.dra and spec.devicePlugin")
 
-					module := newUnstructuredModule("test-mutual-exclusion", nSpace, map[string]interface{}{
+					module := define.UnstructuredModule("test-mutual-exclusion", nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"moduleLoader": map[string]interface{}{
 							"container": map[string]interface{}{
@@ -75,13 +74,13 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 						},
 						"devicePlugin": map[string]interface{}{
 							"container": map[string]interface{}{
-								"image": "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image": kmmparams.DRATestImage,
 							},
 						},
 						"dra": map[string]interface{}{
 							"driverName": "gpu.example.com",
 							"container": map[string]interface{}{
-								"image": "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image": kmmparams.DRATestImage,
 							},
 						},
 					})
@@ -98,7 +97,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				reportxml.ID("89702"), func() {
 					By("Create Module with empty spec.dra.driverName")
 
-					module := newUnstructuredModule("test-empty-driver", nSpace, map[string]interface{}{
+					module := define.UnstructuredModule("test-empty-driver", nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"moduleLoader": map[string]interface{}{
 							"container": map[string]interface{}{
@@ -116,7 +115,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 						"dra": map[string]interface{}{
 							"driverName": "",
 							"container": map[string]interface{}{
-								"image": "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image": kmmparams.DRATestImage,
 							},
 						},
 					})
@@ -130,7 +129,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				reportxml.ID("89702"), func() {
 					By("Create Module with non-DNS driverName")
 
-					module := newUnstructuredModule("test-invalid-driver", nSpace, map[string]interface{}{
+					module := define.UnstructuredModule("test-invalid-driver", nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"moduleLoader": map[string]interface{}{
 							"container": map[string]interface{}{
@@ -148,7 +147,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 						"dra": map[string]interface{}{
 							"driverName": "INVALID DRIVER NAME WITH SPACES",
 							"container": map[string]interface{}{
-								"image": "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image": kmmparams.DRATestImage,
 							},
 						},
 					})
@@ -162,7 +161,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				reportxml.ID("89702"), func() {
 					By("Create Module with duplicate deviceClass names")
 
-					module := newUnstructuredModule("test-dup-deviceclass", nSpace, map[string]interface{}{
+					module := define.UnstructuredModule("test-dup-deviceclass", nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"moduleLoader": map[string]interface{}{
 							"container": map[string]interface{}{
@@ -180,7 +179,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 						"dra": map[string]interface{}{
 							"driverName": "gpu.example.com",
 							"container": map[string]interface{}{
-								"image": "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image": kmmparams.DRATestImage,
 							},
 							"deviceClasses": []interface{}{
 								map[string]interface{}{"name": "my-class"},
@@ -200,7 +199,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				reportxml.ID("89706"), func() {
 					By("Create Module with valid hostPath prefixes (/dev, /sys, /var, /opt, /run)")
 
-					module := newUnstructuredModule("test-valid-volumes", nSpace, map[string]interface{}{
+					module := define.UnstructuredModule("test-valid-volumes", nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"moduleLoader": map[string]interface{}{
 							"container": map[string]interface{}{
@@ -218,7 +217,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 						"dra": map[string]interface{}{
 							"driverName": "gpu.example.com",
 							"container": map[string]interface{}{
-								"image": "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image": kmmparams.DRATestImage,
 							},
 							"volumes": []interface{}{
 								map[string]interface{}{
@@ -264,7 +263,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				reportxml.ID("89706"), func() {
 					By("Create Module with /etc hostPath volume in DRA spec")
 
-					module := newUnstructuredModule("test-etc-volume", nSpace, map[string]interface{}{
+					module := define.UnstructuredModule("test-etc-volume", nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"moduleLoader": map[string]interface{}{
 							"container": map[string]interface{}{
@@ -282,7 +281,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 						"dra": map[string]interface{}{
 							"driverName": "gpu.example.com",
 							"container": map[string]interface{}{
-								"image": "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image": kmmparams.DRATestImage,
 							},
 							"volumes": []interface{}{
 								map[string]interface{}{
@@ -305,7 +304,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				reportxml.ID("89706"), func() {
 					By("Create Module with path traversal in DRA hostPath volume")
 
-					module := newUnstructuredModule("test-traversal-volume", nSpace, map[string]interface{}{
+					module := define.UnstructuredModule("test-traversal-volume", nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"moduleLoader": map[string]interface{}{
 							"container": map[string]interface{}{
@@ -323,7 +322,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 						"dra": map[string]interface{}{
 							"driverName": "gpu.example.com",
 							"container": map[string]interface{}{
-								"image": "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image": kmmparams.DRATestImage,
 							},
 							"volumes": []interface{}{
 								map[string]interface{}{
@@ -343,17 +342,3 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 		})
 	})
 })
-
-func newUnstructuredModule(name, nsname string, spec map[string]interface{}) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "kmm.sigs.x-k8s.io/v1beta1",
-			"kind":       "Module",
-			"metadata": map[string]interface{}{
-				"name":      name,
-				"namespace": nsname,
-			},
-			"spec": spec,
-		},
-	}
-}
