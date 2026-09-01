@@ -229,14 +229,14 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					By("Waiting for device-plugin DaemonSet to be removed")
 
 					err = await.DevicePluginDaemonSetGone(
-						APIClient, params.NeuronNamespace, migrationPollTimeout)
+						APIClient, params.NeuronNamespace, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
 						"Device-plugin DaemonSet should be removed after migration")
 
 					By("Waiting for scheduler deployments to be removed")
 
 					err = await.NoSchedulerDeployments(
-						APIClient, params.NeuronNamespace, migrationPollTimeout)
+						APIClient, params.NeuronNamespace, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
 						"Scheduler deployments should be removed after migration")
 
@@ -375,21 +375,21 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					By("Waiting for DRA DaemonSet to be removed")
 
 					err = await.DRADaemonSetGone(
-						APIClient, params.NeuronNamespace, migrationPollTimeout)
+						APIClient, params.NeuronNamespace, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
 						"DRA DaemonSet should be removed after rollback")
 
 					By("Waiting for DeviceClass to be removed")
 
 					err = await.DeviceClassGone(
-						APIClient, params.DRADefaultDeviceClassName, tsparams.DeviceClassTimeout)
+						APIClient, params.DRADefaultDeviceClassName, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
 						"DeviceClass should be removed after rollback")
 
 					By("Waiting for ResourceSlices to be cleaned up")
 
 					err = await.ResourceSlicesGone(
-						APIClient, params.DRADriverName, migrationPollTimeout)
+						APIClient, params.DRADriverName, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
 						"ResourceSlices should be removed after rollback")
 
