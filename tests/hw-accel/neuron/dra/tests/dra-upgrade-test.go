@@ -165,14 +165,44 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 
 			It("should create new DRA DaemonSet with updated image",
 				reportxml.ID("90511"), func() {
-					By("Waiting for new DRA DaemonSet to be ready")
+					By("Waiting for a ready DRA DaemonSet with the upgrade image and the old DS gone")
 
-					err := await.DRADaemonSet(
-						APIClient, params.NeuronNamespace, upgradeTimeout)
-					Expect(err).ToNot(HaveOccurred(),
-						"New DRA DaemonSet should be ready after upgrade")
+					Eventually(func(g Gomega) {
+						dsList, listErr := APIClient.K8sClient.AppsV1().DaemonSets(
+							params.NeuronNamespace).List(
+							context.TODO(), metav1.ListOptions{
+								LabelSelector: fmt.Sprintf("%s=%s",
+									params.DRADaemonSetLabelKey, params.DRADaemonSetLabelValue),
+							})
+						g.Expect(listErr).ToNot(HaveOccurred())
 
-					By("Verifying new DRA DaemonSet has different name (per-version)")
+						oldGone := true
+						newReady := false
+
+						for idx := range dsList.Items {
+							currentDS := &dsList.Items[idx]
+
+							if currentDS.Name == originalDSName {
+								oldGone = false
+							}
+
+							draContainer := currentDS.Spec.Template.Spec.Containers[0]
+
+							if draContainer.Image == neuronCfg.UpgradeDRADriverImage &&
+								currentDS.Status.DesiredNumberScheduled > 0 &&
+								currentDS.Status.NumberReady == currentDS.Status.DesiredNumberScheduled {
+								newReady = true
+							}
+						}
+
+						g.Expect(oldGone).To(BeTrue(),
+							"Old DRA DaemonSet %s should be garbage collected", originalDSName)
+						g.Expect(newReady).To(BeTrue(),
+							"A ready DRA DaemonSet with image %s should exist",
+							neuronCfg.UpgradeDRADriverImage)
+					}, upgradeTimeout, 10*time.Second).Should(Succeed())
+
+					By("Verifying the DRA container has the upgrade image")
 
 					dsList, err := APIClient.K8sClient.AppsV1().DaemonSets(
 						params.NeuronNamespace).List(
@@ -181,20 +211,15 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 								params.DRADaemonSetLabelKey, params.DRADaemonSetLabelValue),
 						})
 					Expect(err).ToNot(HaveOccurred())
-					Expect(dsList.Items).To(HaveLen(1),
-						"Only one DRA DaemonSet should exist after upgrade converges")
+					Expect(dsList.Items).ToNot(BeEmpty())
 
-					newDSName := dsList.Items[0].Name
+					draContainer := dsList.Items[0].Spec.Template.Spec.Containers[0]
+
+					Expect(draContainer.Image).To(Equal(neuronCfg.UpgradeDRADriverImage),
+						"DRA container image should be the upgrade target")
 
 					klog.V(params.NeuronLogLevel).Infof(
-						"New DRA DaemonSet: %s (was: %s)", newDSName, originalDSName)
-
-					By("Verifying DRA pods have the new image")
-
-					for _, container := range dsList.Items[0].Spec.Template.Spec.Containers {
-						Expect(container.Image).To(Equal(neuronCfg.UpgradeDRADriverImage),
-							"DRA pod container image should be the upgrade target")
-					}
+						"New DRA DaemonSet: %s (was: %s)", dsList.Items[0].Name, originalDSName)
 				})
 
 			It("should still have ResourceSlices published after upgrade",
@@ -254,6 +279,10 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 					Skip("DRA not configured - ECO_HWACCEL_NEURON_DRA_DRIVER_IMAGE not set")
 				}
 
+				if !neuronCfg.IsValid() {
+					Skip("Neuron configuration is not valid - NodeMetricsImage may be missing")
+				}
+
 				By("Verifying DRA DeviceConfig exists")
 
 				dcBuilder, err := neuron.Pull(
@@ -287,13 +316,11 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 
 					metricsFound := false
 
-					for _, ds := range dsList.Items {
-						if ds.Name == params.MetricsDaemonSetPrefix ||
-							len(ds.Name) > len(params.MetricsDaemonSetPrefix) &&
-								ds.Name[:len(params.MetricsDaemonSetPrefix)] == params.MetricsDaemonSetPrefix {
+					for idx := range dsList.Items {
+						if strings.HasPrefix(dsList.Items[idx].Name, params.MetricsDaemonSetPrefix) {
 							metricsFound = true
 
-							Expect(int(ds.Status.NumberReady)).To(Equal(len(neuronNodes)),
+							Expect(int(dsList.Items[idx].Status.NumberReady)).To(Equal(len(neuronNodes)),
 								"Metrics DaemonSet should have one ready pod per Neuron node")
 						}
 					}

@@ -176,6 +176,9 @@ func (c *NeuronConfig) IsDRAConfigured() bool {
 }
 
 // IsDRAUpgradeConfigured checks if DRA upgrade testing configuration is present.
+// Requires two distinct DRA driver images to avoid a vacuous pass.
 func (c *NeuronConfig) IsDRAUpgradeConfigured() bool {
-	return c.IsDRAConfigured() && c.UpgradeDRADriverImage != ""
+	return c.IsDRAConfigured() &&
+		c.UpgradeDRADriverImage != "" &&
+		c.DRADriverImage != c.UpgradeDRADriverImage
 }
