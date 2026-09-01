@@ -20,6 +20,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/internal/neuronhelpers"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/params"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/internal/inittools"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
@@ -108,9 +109,23 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					APIClient, params.NeuronNamespace, migrationTimeout)
 				Expect(err).ToNot(HaveOccurred(), "Device-plugin DaemonSet should be ready")
 
-				err = await.SchedulerDeployment(
-					APIClient, params.NeuronNamespace, migrationTimeout)
-				Expect(err).ToNot(HaveOccurred(), "Custom scheduler should be ready")
+				Eventually(func(g Gomega) {
+					deployList, listErr := APIClient.K8sClient.AppsV1().Deployments(
+						params.NeuronNamespace).List(
+						context.TODO(), metav1.ListOptions{})
+					g.Expect(listErr).ToNot(HaveOccurred())
+
+					schedulerFound := false
+
+					for _, deploy := range deployList.Items {
+						if strings.Contains(deploy.Name, "scheduler") &&
+							deploy.Status.ReadyReplicas > 0 {
+							schedulerFound = true
+						}
+					}
+
+					g.Expect(schedulerFound).To(BeTrue(), "Custom scheduler should be ready")
+				}, migrationTimeout, 10*time.Second).Should(Succeed())
 			})
 
 			It("should have device-plugin and scheduler running before migration",
@@ -127,6 +142,7 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					for _, ds := range dsList.Items {
 						if strings.HasPrefix(ds.Name, params.DevicePluginDaemonSetPrefix) {
 							dpFound = true
+
 							Expect(int(ds.Status.NumberReady)).To(BeNumerically(">", 0),
 								"Device-plugin DaemonSet should have ready pods")
 						}
@@ -376,6 +392,7 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					for _, ds := range dsList.Items {
 						if strings.HasPrefix(ds.Name, params.DevicePluginDaemonSetPrefix) {
 							dpFound = true
+
 							Expect(int(ds.Status.NumberReady)).To(Equal(len(neuronNodes)),
 								"Device-plugin should have one ready pod per Neuron node")
 						}
@@ -444,6 +461,8 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 						context.TODO(), params.DRADefaultDeviceClassName, metav1.GetOptions{})
 					Expect(err).To(HaveOccurred(),
 						"DeviceClass should not exist after rollback")
+					Expect(apierrors.IsNotFound(err)).To(BeTrue(),
+						"DeviceClass error should be NotFound, got: %v", err)
 
 					By("Verifying no ResourceSlices for neuron driver")
 

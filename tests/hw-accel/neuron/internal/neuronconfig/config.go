@@ -176,6 +176,7 @@ func (c *NeuronConfig) IsDRAConfigured() bool {
 // enabling mode-switching tests (device-plugin ↔ DRA migration/rollback).
 func (c *NeuronConfig) IsDRAMigrationConfigured() bool {
 	return c.IsDRAConfigured() &&
+		c.NodeMetricsImage != "" &&
 		c.DevicePluginImage != "" &&
 		c.SchedulerImage != "" &&
 		c.SchedulerExtensionImage != ""
