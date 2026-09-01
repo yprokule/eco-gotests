@@ -492,6 +492,37 @@ func NoSchedulerDeployments(apiClient *clients.Settings, namespace string,
 		})
 }
 
+// SchedulerDeploymentBySubstring waits for any deployment containing "scheduler" in its name
+// to be ready. The operator creates "neuron-custom-scheduler", not the constant
+// SchedulerDeploymentName ("neuron-scheduler").
+func SchedulerDeploymentBySubstring(apiClient *clients.Settings, namespace string,
+	timeout time.Duration) error {
+	klog.V(params.NeuronLogLevel).Infof(
+		"Waiting for scheduler deployment (by substring) in namespace %s", namespace)
+
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 10*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			deployList, err := apiClient.K8sClient.AppsV1().Deployments(namespace).List(
+				ctx, metav1.ListOptions{})
+			if err != nil {
+				return false, nil
+			}
+
+			for _, deploy := range deployList.Items {
+				if strings.Contains(deploy.Name, "scheduler") &&
+					deploy.Status.ReadyReplicas > 0 {
+					klog.V(params.NeuronLogLevel).Infof(
+						"Scheduler deployment %s is ready", deploy.Name)
+
+					return true, nil
+				}
+			}
+
+			return false, nil
+		})
+}
+
 // DevicePluginDaemonSetGone waits for all device-plugin DaemonSets to be deleted from a namespace.
 func DevicePluginDaemonSetGone(apiClient *clients.Settings, namespace string,
 	timeout time.Duration) error {

@@ -34,10 +34,54 @@ const (
 
 var _ = Describe("Neuron DRA Migration Tests", Ordered,
 	Label(params.Label, params.DRALabel, params.DRAMigrationLabel), func() {
+		neuronCfg := neuronconfig.NewNeuronConfig()
+
+		AfterAll(func() {
+			if !neuronCfg.IsDRAMigrationConfigured() {
+				return
+			}
+
+			By("Restoring DRA-mode DeviceConfig after migration tests")
+
+			if existingDC, _ := neuron.Pull(
+				APIClient, params.DefaultDeviceConfigName, params.NeuronNamespace); existingDC != nil {
+				_, err := existingDC.Delete()
+				Expect(err).ToNot(HaveOccurred())
+
+				Eventually(func() bool {
+					_, pullErr := neuron.Pull(
+						APIClient, params.DefaultDeviceConfigName, params.NeuronNamespace)
+
+					return pullErr != nil
+				}, migrationPollTimeout, 5*time.Second).Should(BeTrue())
+			}
+
+			builder := neuron.NewBuilderWithDRA(
+				APIClient,
+				params.DefaultDeviceConfigName,
+				params.NeuronNamespace,
+				neuronCfg.DriversImage,
+				neuronCfg.DriverVersion,
+				neuronCfg.DRADriverImage,
+			).WithSelector(map[string]string{
+				params.NeuronNFDLabelKey: params.NeuronNFDLabelValue,
+			}).WithNodeMetricsImage(neuronCfg.NodeMetricsImage)
+
+			if neuronCfg.ImageRepoSecretName != "" {
+				builder = builder.WithImageRepoSecret(neuronCfg.ImageRepoSecretName)
+			}
+
+			_, err := builder.Create()
+			Expect(err).ToNot(HaveOccurred(), "Failed to restore DRA-mode DeviceConfig")
+
+			err = await.DRADaemonSet(APIClient, params.NeuronNamespace, migrationTimeout)
+			Expect(err).ToNot(HaveOccurred(), "DRA DaemonSet should be ready after restore")
+
+			klog.V(params.NeuronLogLevel).Info("DRA mode restored after migration tests")
+		})
+
 		// DRA-8: Device-Plugin to DRA Migration
 		Context("Device-plugin to DRA migration", Label(tsparams.LabelSuite), func() {
-			neuronCfg := neuronconfig.NewNeuronConfig()
-
 			BeforeAll(func() {
 				if !neuronCfg.IsDRAMigrationConfigured() {
 					Skip("DRA migration not configured - requires both device-plugin and DRA images")
@@ -109,23 +153,9 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					APIClient, params.NeuronNamespace, migrationTimeout)
 				Expect(err).ToNot(HaveOccurred(), "Device-plugin DaemonSet should be ready")
 
-				Eventually(func(g Gomega) {
-					deployList, listErr := APIClient.K8sClient.AppsV1().Deployments(
-						params.NeuronNamespace).List(
-						context.TODO(), metav1.ListOptions{})
-					g.Expect(listErr).ToNot(HaveOccurred())
-
-					schedulerFound := false
-
-					for _, deploy := range deployList.Items {
-						if strings.Contains(deploy.Name, "scheduler") &&
-							deploy.Status.ReadyReplicas > 0 {
-							schedulerFound = true
-						}
-					}
-
-					g.Expect(schedulerFound).To(BeTrue(), "Custom scheduler should be ready")
-				}, migrationTimeout, 10*time.Second).Should(Succeed())
+				err = await.SchedulerDeploymentBySubstring(
+					APIClient, params.NeuronNamespace, migrationTimeout)
+				Expect(err).ToNot(HaveOccurred(), "Custom scheduler should be ready")
 			})
 
 			It("should have device-plugin and scheduler running before migration",
@@ -139,11 +169,11 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 
 					dpFound := false
 
-					for _, ds := range dsList.Items {
-						if strings.HasPrefix(ds.Name, params.DevicePluginDaemonSetPrefix) {
+					for _, daemonSet := range dsList.Items {
+						if strings.HasPrefix(daemonSet.Name, params.DevicePluginDaemonSetPrefix) {
 							dpFound = true
 
-							Expect(int(ds.Status.NumberReady)).To(BeNumerically(">", 0),
+							Expect(int(daemonSet.Status.NumberReady)).To(BeNumerically(">", 0),
 								"Device-plugin DaemonSet should have ready pods")
 						}
 					}
@@ -182,8 +212,6 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 
 			It("should migrate to DRA mode by updating DeviceConfig",
 				reportxml.ID("90501"), func() {
-					neuronCfg := neuronconfig.NewNeuronConfig()
-
 					By("Pulling DeviceConfig and switching to DRA mode")
 
 					dcBuilder, err := neuron.Pull(
@@ -241,6 +269,8 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					labels := dcBuilder.Object.Labels
 					Expect(labels).To(HaveKeyWithValue(
 						"kmm.node.kubernetes.io/module.name", params.DefaultDeviceConfigName))
+					Expect(labels).To(HaveKeyWithValue(
+						"kmm.node.kubernetes.io/module.namespace", params.NeuronNamespace))
 				})
 
 			It("should have ResourceSlices published after migration to DRA",
@@ -267,6 +297,14 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 						Expect(err).ToNot(HaveOccurred())
 					}
 
+					DeferCleanup(func() {
+						cleanupNS := namespace.NewBuilder(APIClient, migrationTestNS)
+						if cleanupNS.Exists() {
+							err := cleanupNS.DeleteAndWait(migrationPollTimeout)
+							Expect(err).ToNot(HaveOccurred())
+						}
+					})
+
 					rctBuilder := resource.NewResourceClaimTemplateBuilder(
 						APIClient, migrationClaimTpl, migrationTestNS).
 						WithDeviceRequest("neuron-device", params.DRADefaultDeviceClassName, 1)
@@ -292,21 +330,11 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					Expect(err).ToNot(HaveOccurred())
 					Expect(hasDevices).To(BeTrue(),
 						"Pod should have /dev/neuron* device after migration to DRA")
-
-					By("Cleaning up test namespace")
-
-					nsBuilder = namespace.NewBuilder(APIClient, migrationTestNS)
-					if nsBuilder.Exists() {
-						err = nsBuilder.DeleteAndWait(migrationPollTimeout)
-						Expect(err).ToNot(HaveOccurred())
-					}
 				})
 		})
 
 		// DRA-10: DRA to Device-Plugin Rollback
 		Context("DRA to device-plugin rollback", Label(tsparams.LabelSuite), func() {
-			neuronCfg := neuronconfig.NewNeuronConfig()
-
 			BeforeAll(func() {
 				if !neuronCfg.IsDRAMigrationConfigured() {
 					Skip("DRA migration not configured - requires both device-plugin and DRA images")
@@ -389,11 +417,11 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 
 					dpFound := false
 
-					for _, ds := range dsList.Items {
-						if strings.HasPrefix(ds.Name, params.DevicePluginDaemonSetPrefix) {
+					for _, daemonSet := range dsList.Items {
+						if strings.HasPrefix(daemonSet.Name, params.DevicePluginDaemonSetPrefix) {
 							dpFound = true
 
-							Expect(int(ds.Status.NumberReady)).To(Equal(len(neuronNodes)),
+							Expect(int(daemonSet.Status.NumberReady)).To(Equal(len(neuronNodes)),
 								"Device-plugin should have one ready pod per Neuron node")
 						}
 					}
@@ -406,7 +434,7 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 				reportxml.ID("90507"), func() {
 					By("Waiting for scheduler deployment to be ready")
 
-					err := await.SchedulerDeployment(
+					err := await.SchedulerDeploymentBySubstring(
 						APIClient, params.NeuronNamespace, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
 						"Custom scheduler should be ready after rollback")
