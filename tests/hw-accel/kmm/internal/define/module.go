@@ -42,9 +42,10 @@ func ModuleLoaderSpec(kmodName, image, buildArgValue,
 }
 
 // DRAContainer builds the unstructured spec.dra.container for the example DRA driver.
-// extraEnv is appended after DRIVER_NAME. HEALTHCHECK_PORT uses
-// kmmparams.DRAHealthcheckPort so the hostNetwork plugin does not bind KMM's
-// default 51515, which is already used by other DRA drivers (for example Neuron).
+// extraEnv is appended after DRIVER_NAME. HEALTHCHECK_PORT is set last so it
+// overrides KMM's preset 51515 (Kubernetes last-value-wins); that default collides
+// on hostNetwork with other DRA drivers such as Neuron. The liveness probe is
+// left unset so KMM keeps its default GRPC probe on 51515 (verified by OCP-89705).
 func DRAContainer(extraEnv []map[string]interface{}) map[string]interface{} {
 	env := []interface{}{
 		map[string]interface{}{
@@ -66,16 +67,6 @@ func DRAContainer(extraEnv []map[string]interface{}) map[string]interface{} {
 		"image":   kmmparams.DRADriverImage,
 		"command": []interface{}{"dra-example-kubeletplugin"},
 		"env":     env,
-		"livenessProbe": map[string]interface{}{
-			"grpc": map[string]interface{}{
-				"port":    kmmparams.DRAHealthcheckPort,
-				"service": "liveness",
-			},
-			"initialDelaySeconds": 30,
-			"periodSeconds":       10,
-			"timeoutSeconds":      5,
-			"failureThreshold":    3,
-		},
 	}
 }
 
@@ -114,7 +105,7 @@ func DRASpecWithCELSelector(serviceAccountName string, deviceClassNames []string
 
 	expression := fmt.Sprintf("device.driver == '%s'", kmmparams.DRADriverName)
 
-	for i, class := range classes {
+	for _, class := range classes {
 		deviceClass, ok := class.(map[string]interface{})
 		if !ok {
 			continue
@@ -127,27 +118,28 @@ func DRASpecWithCELSelector(serviceAccountName string, deviceClassNames []string
 				},
 			},
 		}
-		classes[i] = deviceClass
 	}
-
-	spec["deviceClasses"] = classes
 
 	return spec
 }
 
 // UnstructuredModule returns an unstructured Module object with the given spec.
+// spec may be nil when only metadata is needed (Get/Delete).
 func UnstructuredModule(name, nsname string, spec map[string]interface{}) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "kmm.sigs.x-k8s.io/v1beta1",
-			"kind":       "Module",
-			"metadata": map[string]interface{}{
-				"name":      name,
-				"namespace": nsname,
-			},
-			"spec": spec,
+	object := map[string]interface{}{
+		"apiVersion": "kmm.sigs.x-k8s.io/v1beta1",
+		"kind":       "Module",
+		"metadata": map[string]interface{}{
+			"name":      name,
+			"namespace": nsname,
 		},
 	}
+
+	if spec != nil {
+		object["spec"] = spec
+	}
+
+	return &unstructured.Unstructured{Object: object}
 }
 
 // ModuleSpec builds a ModuleSpec with a regex kernel mapping and module loader container.

@@ -12,6 +12,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/nodes"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/resource"
+	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/define"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/get"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmminittools"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
@@ -118,16 +119,7 @@ func NoDRANodeLabel(apiClient *clients.Settings, moduleName, nsname string,
 // (availableNumber, desiredNumber, found, error).
 func DRAModuleStatus(apiClient *clients.Settings, moduleName,
 	nsName string) (int64, int64, bool, error) {
-	moduleObj := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "kmm.sigs.x-k8s.io/v1beta1",
-			"kind":       "Module",
-			"metadata": map[string]interface{}{
-				"name":      moduleName,
-				"namespace": nsName,
-			},
-		},
-	}
+	moduleObj := define.UnstructuredModule(moduleName, nsName, nil)
 
 	err := apiClient.Get(context.Background(), types.NamespacedName{
 		Name: moduleName, Namespace: nsName}, moduleObj)
