@@ -70,7 +70,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 				By("Create Module with moduleLoader and DRA")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 					"selector":     GeneralConfig.WorkerLabelMap,
 					"moduleLoader": define.ModuleLoaderSpec(kmodName, image, buildArgValue, serviceAccountName),
 					"dra":          define.DRASpec(serviceAccountName, []string{kmmparams.DRADeviceClassName}, nil),
@@ -206,7 +206,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 				By("Create Module with moduleLoader and DRA")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 					"selector":     GeneralConfig.WorkerLabelMap,
 					"moduleLoader": define.ModuleLoaderSpec(kmodName, image, buildArgValue, serviceAccountName),
 					"dra":          define.DRASpec(serviceAccountName, []string{deviceClassName}, nil),
@@ -273,7 +273,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 					patchBytes, err := json.Marshal(patch)
 					Expect(err).ToNot(HaveOccurred(), "error marshaling patch")
 
-					module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
+					module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{})
 					err = APIClient.Patch(context.TODO(), module,
 						runtimeClient.RawPatch(types.JSONPatchType, patchBytes))
 					Expect(err).ToNot(HaveOccurred(), "error patching module to remove DRA")
@@ -346,7 +346,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 				By("Create Module with DRA and custom env var")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 					"selector": GeneralConfig.WorkerLabelMap,
 					"dra": define.DRASpec(serviceAccountName, nil, []map[string]interface{}{
 						{"name": "MY_CUSTOM_VAR", "value": "custom-value"},
@@ -423,7 +423,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 					Expect(probe).ToNot(BeNil(), "liveness probe should exist")
 					Expect(probe.GRPC).ToNot(BeNil(), "liveness probe should be GRPC")
 					Expect(probe.GRPC.Port).To(Equal(int32(51515)),
-						"GRPC probe port should be 51515")
+						"KMM default GRPC probe port should be 51515")
 				})
 		})
 	})

@@ -63,26 +63,9 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 				By("Create Module with DRA and two deviceClasses")
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 					"selector": GeneralConfig.WorkerLabelMap,
-					"dra": map[string]interface{}{
-						"driverName":         kmmparams.DRADriverName,
-						"serviceAccountName": serviceAccountName,
-						"container": map[string]interface{}{
-							"image":   kmmparams.DRADriverImage,
-							"command": []interface{}{"dra-example-kubeletplugin"},
-							"env": []interface{}{
-								map[string]interface{}{
-									"name":  "DRIVER_NAME",
-									"value": kmmparams.DRADriverName,
-								},
-							},
-						},
-						"deviceClasses": []interface{}{
-							map[string]interface{}{"name": deviceClassA},
-							map[string]interface{}{"name": deviceClassB},
-						},
-					},
+					"dra":      define.DRASpec(serviceAccountName, []string{deviceClassA, deviceClassB}, nil),
 				})
 
 				err = APIClient.Create(context.TODO(), module)
@@ -163,7 +146,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 					patchBytes, err := json.Marshal(patch)
 					Expect(err).ToNot(HaveOccurred(), "error marshaling patch")
 
-					module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
+					module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{})
 					err = APIClient.Patch(context.TODO(), module,
 						runtimeClient.RawPatch(types.JSONPatchType, patchBytes))
 					Expect(err).ToNot(HaveOccurred(), "error patching module")
@@ -267,31 +250,24 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Create Module with init container, custom volume, and automountServiceAccountToken: false")
 
-					module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+					draContainerSpec := define.DRAContainer(nil)
+					draContainerSpec["volumeMounts"] = []interface{}{
+						map[string]interface{}{
+							"name":      "custom-config",
+							"mountPath": "/etc/dra-config",
+							"readOnly":  true,
+						},
+					}
+
+					module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"dra": map[string]interface{}{
 							"driverName":                   kmmparams.DRADriverName,
 							"serviceAccountName":           serviceAccountName,
 							"automountServiceAccountToken": automountFalse,
-							"container": map[string]interface{}{
-								"image":   kmmparams.DRADriverImage,
-								"command": []interface{}{"dra-example-kubeletplugin"},
-								"env": []interface{}{
-									map[string]interface{}{
-										"name":  "DRIVER_NAME",
-										"value": kmmparams.DRADriverName,
-									},
-								},
-								"volumeMounts": []interface{}{
-									map[string]interface{}{
-										"name":      "custom-config",
-										"mountPath": "/etc/dra-config",
-										"readOnly":  true,
-									},
-								},
-							},
+							"container":                    draContainerSpec,
 							"initContainer": map[string]interface{}{
-								"image":   "registry.k8s.io/e2e-test-images/busybox:1.36.1-1",
+								"image":   kmmparams.DRATestImage,
 								"command": []interface{}{"sh", "-c", "echo init-done"},
 							},
 							"volumes": []interface{}{
@@ -427,7 +403,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Create Module with DRA and toleration")
 
-					module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+					module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"tolerations": []interface{}{
 							map[string]interface{}{
@@ -437,20 +413,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 								"effect":   "NoSchedule",
 							},
 						},
-						"dra": map[string]interface{}{
-							"driverName":         kmmparams.DRADriverName,
-							"serviceAccountName": serviceAccountName,
-							"container": map[string]interface{}{
-								"image":   kmmparams.DRADriverImage,
-								"command": []interface{}{"dra-example-kubeletplugin"},
-								"env": []interface{}{
-									map[string]interface{}{
-										"name":  "DRIVER_NAME",
-										"value": kmmparams.DRADriverName,
-									},
-								},
-							},
-						},
+						"dra": define.DRASpec(serviceAccountName, nil, nil),
 					})
 
 					err = APIClient.Create(context.TODO(), module)
@@ -513,22 +476,9 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Create Module with DRA")
 
-					module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+					module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
-						"dra": map[string]interface{}{
-							"driverName":         kmmparams.DRADriverName,
-							"serviceAccountName": serviceAccountName,
-							"container": map[string]interface{}{
-								"image":   kmmparams.DRADriverImage,
-								"command": []interface{}{"dra-example-kubeletplugin"},
-								"env": []interface{}{
-									map[string]interface{}{
-										"name":  "DRIVER_NAME",
-										"value": kmmparams.DRADriverName,
-									},
-								},
-							},
-						},
+						"dra":      define.DRASpec(serviceAccountName, nil, nil),
 					})
 
 					err = APIClient.Create(context.TODO(), module)
@@ -591,22 +541,9 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Create Module with DRA but no deviceClasses")
 
-					module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+					module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
-						"dra": map[string]interface{}{
-							"driverName":         kmmparams.DRADriverName,
-							"serviceAccountName": serviceAccountName,
-							"container": map[string]interface{}{
-								"image":   kmmparams.DRADriverImage,
-								"command": []interface{}{"dra-example-kubeletplugin"},
-								"env": []interface{}{
-									map[string]interface{}{
-										"name":  "DRIVER_NAME",
-										"value": kmmparams.DRADriverName,
-									},
-								},
-							},
-						},
+						"dra":      define.DRASpec(serviceAccountName, nil, nil),
 					})
 
 					err = APIClient.Create(context.TODO(), module)
@@ -703,25 +640,12 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Create Module with DRA and imagePullSecrets")
 
-					module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+					module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
 						"imageRepoSecret": map[string]interface{}{
 							"name": secretName,
 						},
-						"dra": map[string]interface{}{
-							"driverName":         kmmparams.DRADriverName,
-							"serviceAccountName": serviceAccountName,
-							"container": map[string]interface{}{
-								"image":   kmmparams.DRADriverImage,
-								"command": []interface{}{"dra-example-kubeletplugin"},
-								"env": []interface{}{
-									map[string]interface{}{
-										"name":  "DRIVER_NAME",
-										"value": kmmparams.DRADriverName,
-									},
-								},
-							},
-						},
+						"dra": define.DRASpec(serviceAccountName, nil, nil),
 					})
 
 					err = APIClient.Create(context.TODO(), module)
@@ -784,25 +708,9 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 
 					By("Create Module with DRA and deviceClass")
 
-					module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+					module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 						"selector": GeneralConfig.WorkerLabelMap,
-						"dra": map[string]interface{}{
-							"driverName":         kmmparams.DRADriverName,
-							"serviceAccountName": serviceAccountName,
-							"container": map[string]interface{}{
-								"image":   kmmparams.DRADriverImage,
-								"command": []interface{}{"dra-example-kubeletplugin"},
-								"env": []interface{}{
-									map[string]interface{}{
-										"name":  "DRIVER_NAME",
-										"value": kmmparams.DRADriverName,
-									},
-								},
-							},
-							"deviceClasses": []interface{}{
-								map[string]interface{}{"name": deviceClassName},
-							},
-						},
+						"dra":      define.DRASpec(serviceAccountName, []string{deviceClassName}, nil),
 					})
 
 					err = APIClient.Create(context.TODO(), module)
@@ -833,7 +741,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 					patchBytes, err := json.Marshal(patch)
 					Expect(err).ToNot(HaveOccurred(), "error marshaling patch")
 
-					moduleObj := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
+					moduleObj := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{})
 					err = APIClient.Patch(context.TODO(), moduleObj,
 						runtimeClient.RawPatch(types.JSONPatchType, patchBytes))
 					Expect(err).ToNot(HaveOccurred(), "error patching module to remove DRA")

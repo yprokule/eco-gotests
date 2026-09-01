@@ -123,7 +123,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				containerSpec["version"] = "v1"
 				containerSpec["imagePullPolicy"] = "Always"
 
-				module := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{
+				module := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{
 					"selector":     GeneralConfig.WorkerLabelMap,
 					"moduleLoader": mlSpec,
 					"dra":          define.DRASpec(serviceAccountName, []string{kmmparams.DRADeviceClassName}, nil),
@@ -209,7 +209,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				tempContainerSpec["version"] = "v2"
 				tempContainerSpec["imagePullPolicy"] = "Always"
 
-				tempModule := newUnstructuredModule(tempModuleName, nSpace, map[string]interface{}{
+				tempModule := define.UnstructuredModule(tempModuleName, nSpace, map[string]interface{}{
 					"selector":     GeneralConfig.WorkerLabelMap,
 					"moduleLoader": tempMLSpec,
 				})
@@ -258,7 +258,7 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 				patchBytes, err := json.Marshal(patch)
 				Expect(err).ToNot(HaveOccurred(), "error marshaling patch")
 
-				patchModule := newUnstructuredModule(moduleName, nSpace, map[string]interface{}{})
+				patchModule := define.UnstructuredModule(moduleName, nSpace, map[string]interface{}{})
 				err = APIClient.Patch(context.TODO(), patchModule,
 					runtimeClient.RawPatch(types.JSONPatchType, patchBytes))
 				Expect(err).ToNot(HaveOccurred(), "error patching module to v2")

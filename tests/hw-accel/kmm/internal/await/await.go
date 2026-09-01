@@ -12,6 +12,8 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/mco"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/nodes"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/resource"
+	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/define"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/get"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/kmm/internal/kmmparams"
 
@@ -381,16 +383,7 @@ func CleanupModules(apiClient *clients.Settings, moduleNames []string, nsName st
 	var errs []error
 
 	for _, modName := range moduleNames {
-		mod := &unstructured.Unstructured{
-			Object: map[string]interface{}{
-				"apiVersion": "kmm.sigs.x-k8s.io/v1beta1",
-				"kind":       "Module",
-				"metadata": map[string]interface{}{
-					"name":      modName,
-					"namespace": nsName,
-				},
-			},
-		}
+		mod := define.UnstructuredModule(modName, nsName, nil)
 
 		err := apiClient.Delete(context.TODO(), mod)
 
@@ -635,5 +628,22 @@ func MachineConfigDeleted(apiClient *clients.Settings, mcName string, timeout ti
 			}
 
 			return false, nil
+		})
+}
+
+// ResourceSlicesPublished awaits ResourceSlices published by the given DRA driver.
+func ResourceSlicesPublished(apiClient *clients.Settings, driverName string, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 10*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
+			slices, err := resource.ListResourceSlicesByDriver(apiClient, driverName)
+			if err != nil {
+				klog.V(kmmparams.KmmLogLevel).Infof("error listing ResourceSlices: %v", err)
+
+				return false, nil
+			}
+
+			klog.V(kmmparams.KmmLogLevel).Infof("ResourceSlices for driver %s: %d", driverName, len(slices))
+
+			return len(slices) > 0, nil
 		})
 }
