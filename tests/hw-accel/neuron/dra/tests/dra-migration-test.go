@@ -493,23 +493,25 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 					Expect(err).ToNot(HaveOccurred(),
 						"Custom scheduler should be ready after rollback")
 
-					By("Verifying scheduler extension exists")
+					By("Waiting for scheduler extension to exist")
 
-					deployList, err := APIClient.K8sClient.AppsV1().Deployments(
-						params.NeuronNamespace).List(
-						context.TODO(), metav1.ListOptions{})
-					Expect(err).ToNot(HaveOccurred())
-
-					extensionFound := false
-
-					for _, deploy := range deployList.Items {
-						if strings.HasPrefix(deploy.Name,
-							params.SchedulerExtensionDeploymentPrefix) {
-							extensionFound = true
+					Eventually(func() bool {
+						deployList, listErr := APIClient.K8sClient.AppsV1().Deployments(
+							params.NeuronNamespace).List(
+							context.TODO(), metav1.ListOptions{})
+						if listErr != nil {
+							return false
 						}
-					}
 
-					Expect(extensionFound).To(BeTrue(),
+						for _, deploy := range deployList.Items {
+							if strings.HasPrefix(deploy.Name,
+								params.SchedulerExtensionDeploymentPrefix) {
+								return true
+							}
+						}
+
+						return false
+					}, migrationTimeout, 10*time.Second).Should(BeTrue(),
 						"Scheduler extension deployment should exist after rollback")
 				})
 
