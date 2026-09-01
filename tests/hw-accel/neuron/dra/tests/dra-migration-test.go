@@ -296,16 +296,21 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 
 			It("should have ResourceSlices published after migration to DRA",
 				reportxml.ID("90503"), func() {
-					By("Listing ResourceSlices for neuron.aws.com driver")
+					By("Waiting for ResourceSlices to be published")
 
-					slices, err := resource.ListResourceSlicesByDriver(
-						APIClient, params.DRADriverName)
-					Expect(err).ToNot(HaveOccurred())
-					Expect(slices).ToNot(BeEmpty(),
+					Eventually(func() bool {
+						slices, err := resource.ListResourceSlicesByDriver(
+							APIClient, params.DRADriverName)
+						if err != nil || len(slices) == 0 {
+							return false
+						}
+
+						klog.V(params.NeuronLogLevel).Infof(
+							"Found %d ResourceSlices after migration", len(slices))
+
+						return true
+					}, migrationTimeout, 10*time.Second).Should(BeTrue(),
 						"ResourceSlices should be published after migration to DRA")
-
-					klog.V(params.NeuronLogLevel).Infof(
-						"Found %d ResourceSlices after migration", len(slices))
 				})
 
 			It("should allocate a device via DRA after migration",
