@@ -492,13 +492,13 @@ func NoSchedulerDeployments(apiClient *clients.Settings, namespace string,
 		})
 }
 
-// SchedulerDeploymentBySubstring waits for any deployment containing "scheduler" in its name
-// to be ready. The operator creates "neuron-custom-scheduler", not the constant
-// SchedulerDeploymentName ("neuron-scheduler").
+// SchedulerDeploymentBySubstring waits for the custom-scheduler deployment to be ready.
+// The operator creates "<name>-custom-scheduler", not the constant SchedulerDeploymentName.
+// Matches "custom-scheduler" but excludes "custom-scheduler-extension".
 func SchedulerDeploymentBySubstring(apiClient *clients.Settings, namespace string,
 	timeout time.Duration) error {
 	klog.V(params.NeuronLogLevel).Infof(
-		"Waiting for scheduler deployment (by substring) in namespace %s", namespace)
+		"Waiting for custom-scheduler deployment in namespace %s", namespace)
 
 	return wait.PollUntilContextTimeout(
 		context.TODO(), 10*time.Second, timeout, true,
@@ -510,7 +510,8 @@ func SchedulerDeploymentBySubstring(apiClient *clients.Settings, namespace strin
 			}
 
 			for _, deploy := range deployList.Items {
-				if strings.Contains(deploy.Name, "scheduler") &&
+				if strings.Contains(deploy.Name, "custom-scheduler") &&
+					!strings.Contains(deploy.Name, "scheduler-extension") &&
 					deploy.Status.ReadyReplicas > 0 {
 					klog.V(params.NeuronLogLevel).Infof(
 						"Scheduler deployment %s is ready", deploy.Name)
