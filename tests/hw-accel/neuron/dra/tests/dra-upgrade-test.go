@@ -3,6 +3,7 @@ package tests
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -32,7 +33,9 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 		// DRA-7: DRA Driver Image Upgrade
 		Context("DRA driver image upgrade", Label(tsparams.LabelSuite), func() {
 			neuronCfg := neuronconfig.NewNeuronConfig()
+
 			var originalImage string
+
 			var originalDSName string
 
 			BeforeAll(func() {
@@ -289,6 +292,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 							len(ds.Name) > len(params.MetricsDaemonSetPrefix) &&
 								ds.Name[:len(params.MetricsDaemonSetPrefix)] == params.MetricsDaemonSetPrefix {
 							metricsFound = true
+
 							Expect(int(ds.Status.NumberReady)).To(Equal(len(neuronNodes)),
 								"Metrics DaemonSet should have one ready pod per Neuron node")
 						}
@@ -310,15 +314,15 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 					draFound := false
 					metricsFound := false
 
-					for _, ds := range dsList.Items {
-						labels := ds.Labels
+					for idx := range dsList.Items {
+						daemonSet := &dsList.Items[idx]
+						labels := daemonSet.Labels
+
 						if labels != nil && labels[params.DRADaemonSetLabelKey] == params.DRADaemonSetLabelValue {
 							draFound = true
 						}
 
-						if ds.Name == params.MetricsDaemonSetPrefix ||
-							len(ds.Name) > len(params.MetricsDaemonSetPrefix) &&
-								ds.Name[:len(params.MetricsDaemonSetPrefix)] == params.MetricsDaemonSetPrefix {
+						if strings.HasPrefix(daemonSet.Name, params.MetricsDaemonSetPrefix) {
 							metricsFound = true
 						}
 					}
