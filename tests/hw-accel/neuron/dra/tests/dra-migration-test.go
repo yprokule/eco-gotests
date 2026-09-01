@@ -210,35 +210,56 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 						"DRA DaemonSet should not exist in device-plugin mode")
 				})
 
-			It("should migrate to DRA mode by updating DeviceConfig",
+			It("should migrate to DRA mode by deleting and recreating DeviceConfig",
 				reportxml.ID("90501"), func() {
-					By("Pulling DeviceConfig and switching to DRA mode")
+					By("Deleting device-plugin mode DeviceConfig")
 
 					dcBuilder, err := neuron.Pull(
 						APIClient, params.DefaultDeviceConfigName, params.NeuronNamespace)
 					Expect(err).ToNot(HaveOccurred())
 
-					dcBuilder.Definition.Spec.DevicePluginImage = ""
-					dcBuilder.Definition.Spec.CustomSchedulerImage = ""
-					dcBuilder.Definition.Spec.SchedulerExtensionImage = ""
-					dcBuilder.Definition.Spec.DRADriverImage = neuronCfg.DRADriverImage
+					_, err = dcBuilder.Delete()
+					Expect(err).ToNot(HaveOccurred(), "Failed to delete device-plugin DeviceConfig")
 
-					_, err = dcBuilder.Update(false)
-					Expect(err).ToNot(HaveOccurred(), "Failed to update DeviceConfig to DRA mode")
+					By("Waiting for cascade cleanup")
 
-					By("Waiting for device-plugin DaemonSet to be removed")
+					Eventually(func() bool {
+						_, pullErr := neuron.Pull(
+							APIClient, params.DefaultDeviceConfigName, params.NeuronNamespace)
+
+						return pullErr != nil
+					}, migrationTimeout, 5*time.Second).Should(BeTrue(),
+						"DeviceConfig should be deleted")
 
 					err = await.DevicePluginDaemonSetGone(
 						APIClient, params.NeuronNamespace, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
-						"Device-plugin DaemonSet should be removed after migration")
-
-					By("Waiting for scheduler deployments to be removed")
+						"Device-plugin DaemonSet should be removed after deletion")
 
 					err = await.NoSchedulerDeployments(
 						APIClient, params.NeuronNamespace, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
-						"Scheduler deployments should be removed after migration")
+						"Scheduler deployments should be removed after deletion")
+
+					By("Creating DRA-mode DeviceConfig")
+
+					draBuilder := neuron.NewBuilderWithDRA(
+						APIClient,
+						params.DefaultDeviceConfigName,
+						params.NeuronNamespace,
+						neuronCfg.DriversImage,
+						neuronCfg.DriverVersion,
+						neuronCfg.DRADriverImage,
+					).WithSelector(map[string]string{
+						params.NeuronNFDLabelKey: params.NeuronNFDLabelValue,
+					}).WithNodeMetricsImage(neuronCfg.NodeMetricsImage)
+
+					if neuronCfg.ImageRepoSecretName != "" {
+						draBuilder = draBuilder.WithImageRepoSecret(neuronCfg.ImageRepoSecretName)
+					}
+
+					_, err = draBuilder.Create()
+					Expect(err).ToNot(HaveOccurred(), "Failed to create DRA-mode DeviceConfig")
 
 					By("Waiting for DRA DaemonSet to be ready")
 
@@ -355,45 +376,73 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 				Expect(err).ToNot(HaveOccurred(), "DRA DaemonSet must be ready before rollback")
 			})
 
-			It("should rollback to device-plugin mode by updating DeviceConfig",
+			It("should rollback to device-plugin mode by deleting and recreating DeviceConfig",
 				reportxml.ID("90505"), func() {
-					By("Pulling DeviceConfig and switching to device-plugin mode")
+					By("Deleting DRA-mode DeviceConfig")
 
 					dcBuilder, err := neuron.Pull(
 						APIClient, params.DefaultDeviceConfigName, params.NeuronNamespace)
 					Expect(err).ToNot(HaveOccurred())
 
-					dcBuilder.Definition.Spec.DRADriverImage = ""
-					dcBuilder.Definition.Spec.DevicePluginImage = neuronCfg.DevicePluginImage
-					dcBuilder.Definition.Spec.CustomSchedulerImage = neuronCfg.SchedulerImage
-					dcBuilder.Definition.Spec.SchedulerExtensionImage = neuronCfg.SchedulerExtensionImage
-
-					_, err = dcBuilder.Update(false)
+					_, err = dcBuilder.Delete()
 					Expect(err).ToNot(HaveOccurred(),
-						"Failed to update DeviceConfig to device-plugin mode")
+						"Failed to delete DRA DeviceConfig")
 
-					By("Waiting for DRA DaemonSet to be removed")
+					By("Waiting for cascade cleanup")
+
+					Eventually(func() bool {
+						_, pullErr := neuron.Pull(
+							APIClient, params.DefaultDeviceConfigName, params.NeuronNamespace)
+
+						return pullErr != nil
+					}, migrationTimeout, 5*time.Second).Should(BeTrue(),
+						"DeviceConfig should be deleted")
 
 					err = await.DRADaemonSetGone(
 						APIClient, params.NeuronNamespace, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
-						"DRA DaemonSet should be removed after rollback")
-
-					By("Waiting for DeviceClass to be removed")
+						"DRA DaemonSet should be removed after deletion")
 
 					err = await.DeviceClassGone(
 						APIClient, params.DRADefaultDeviceClassName, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
-						"DeviceClass should be removed after rollback")
-
-					By("Waiting for ResourceSlices to be cleaned up")
+						"DeviceClass should be removed after deletion")
 
 					err = await.ResourceSlicesGone(
 						APIClient, params.DRADriverName, migrationTimeout)
 					Expect(err).ToNot(HaveOccurred(),
-						"ResourceSlices should be removed after rollback")
+						"ResourceSlices should be removed after deletion")
 
-					klog.V(params.NeuronLogLevel).Info("DRA resources cleaned up after rollback")
+					By("Creating device-plugin mode DeviceConfig")
+
+					dpBuilder := neuron.NewBuilder(
+						APIClient,
+						params.DefaultDeviceConfigName,
+						params.NeuronNamespace,
+						neuronCfg.DriversImage,
+						neuronCfg.DriverVersion,
+						neuronCfg.DevicePluginImage,
+					).WithSelector(map[string]string{
+						params.NeuronNFDLabelKey: params.NeuronNFDLabelValue,
+					}).WithScheduler(
+						neuronCfg.SchedulerImage,
+						neuronCfg.SchedulerExtensionImage,
+					).WithNodeMetricsImage(neuronCfg.NodeMetricsImage)
+
+					if neuronCfg.ImageRepoSecretName != "" {
+						dpBuilder = dpBuilder.WithImageRepoSecret(neuronCfg.ImageRepoSecretName)
+					}
+
+					_, err = dpBuilder.Create()
+					Expect(err).ToNot(HaveOccurred(),
+						"Failed to create device-plugin mode DeviceConfig")
+
+					By("Waiting for device-plugin mode to be fully ready")
+
+					err = neuronhelpers.WaitForClusterStabilityAfterDeviceConfig(APIClient)
+					Expect(err).ToNot(HaveOccurred())
+
+					klog.V(params.NeuronLogLevel).Info("Rollback to device-plugin mode complete")
 				})
 
 			It("should have device-plugin DaemonSet running after rollback",
