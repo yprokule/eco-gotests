@@ -351,7 +351,7 @@ const (
 	// DRATestImage represents a generic container image used in DRA webhook tests.
 	DRATestImage = "registry.k8s.io/e2e-test-images/busybox:1.36.1-1"
 	// UBIMinimalImage represents UBI 9 minimal image used by DRA consumer pods.
-	UBIMinimalImage = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+	UBIMinimalImage = "registry.access.redhat.com/ubi9/ubi-minimal:9.6"
 	// DefaultNodesNamespace represents namespace of the nodes events.
 	DefaultNodesNamespace = "default"
 	// SimpleKmodImage represents the pre-built simple-kmod kernel module image.

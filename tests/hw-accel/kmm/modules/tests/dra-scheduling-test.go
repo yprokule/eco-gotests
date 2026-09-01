@@ -27,12 +27,6 @@ import (
 
 var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSanity), func() {
 	Context("DRA Scheduling", Label("dra", "dra-scheduling"), func() {
-		BeforeEach(func() {
-			if kmmparams.DRADriverImage == "" {
-				Skip("ECO_HWACCEL_KMM_DRA_DRIVER_IMAGE_REPO is not set")
-			}
-		})
-
 		nSpace := kmmparams.DRASchedulingTestNamespace
 		moduleName := "dra-sched-test"
 		kmodName := "schedmod"
@@ -47,6 +41,10 @@ var _ = Describe("KMM", Ordered, Label(kmmparams.LabelSuite, kmmparams.LabelSani
 		buildArgValue := fmt.Sprintf("%s.o", kmodName)
 
 		BeforeAll(func() {
+			if kmmparams.DRADriverImage == "" {
+				Skip("ECO_HWACCEL_KMM_DRA_DRIVER_IMAGE_REPO is not set")
+			}
+
 			By("Create Namespace")
 
 			_, err := namespace.NewBuilder(APIClient, nSpace).Create()

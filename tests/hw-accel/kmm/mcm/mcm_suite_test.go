@@ -56,7 +56,7 @@ var _ = JustAfterEach(func() {
 var _ = BeforeSuite(func() {
 	By("Prepare environment spoke for KMM-HUB tests execution")
 
-	if ModulesConfig.SpokeClusterName == "" || ModulesConfig.SpokeKubeConfig == "" {
+	if ModulesConfig == nil || ModulesConfig.SpokeClusterName == "" || ModulesConfig.SpokeKubeConfig == "" {
 		klog.V(kmmparams.KmmLogLevel).Infof("No spoke environment variables defined, skipping spoke setup")
 
 		return
