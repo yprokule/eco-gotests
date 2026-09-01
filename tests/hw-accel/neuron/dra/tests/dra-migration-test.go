@@ -504,8 +504,7 @@ var _ = Describe("Neuron DRA Migration Tests", Ordered,
 						}
 
 						for _, deploy := range deployList.Items {
-							if strings.HasPrefix(deploy.Name,
-								params.SchedulerExtensionDeploymentPrefix) {
+							if strings.Contains(deploy.Name, "scheduler-extension") {
 								return true
 							}
 						}
