@@ -67,6 +67,9 @@ const (
 	// DRADefaultDeviceClassName is the default DeviceClass name for Neuron DRA.
 	DRADefaultDeviceClassName = "neuron.aws.com"
 
+	// DRADeviceRequestName is the in-pod name used to reference a Neuron ResourceClaim.
+	DRADeviceRequestName = "neuron-device"
+
 	// DRAServiceAccountName is the service account for the DRA driver pods.
 	DRAServiceAccountName = "awslabs-gpu-operator-dra-driver"
 

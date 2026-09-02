@@ -18,6 +18,13 @@ var ServiceMonitorGVR = schema.GroupVersionResource{
 	Resource: "servicemonitors",
 }
 
+// DeviceConfigGVR is the GroupVersionResource for Neuron DeviceConfigs.
+var DeviceConfigGVR = schema.GroupVersionResource{
+	Group:    "k8s.aws",
+	Version:  "v1beta1",
+	Resource: "deviceconfigs",
+}
+
 // HasPrefix checks if a string starts with a specific prefix.
 func HasPrefix(s, prefix string) bool {
 	return len(s) >= len(prefix) && s[:len(prefix)] == prefix

@@ -10,15 +10,275 @@ import (
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/deployment"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/nodes"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
+	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/internal/check"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/internal/neuronparams"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/params"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
+
+// DRADeviceConfig waits for a DeviceConfig with a configured DRA driver image.
+func DRADeviceConfig(apiClient *clients.Settings, name, namespace string,
+	timeout time.Duration) error {
+	var lastErr error
+
+	err := wait.PollUntilContextTimeout(
+		context.TODO(), 5*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			deviceConfig, getErr := apiClient.Resource(neuronparams.DeviceConfigGVR).
+				Namespace(namespace).
+				Get(ctx, name, metav1.GetOptions{})
+
+			lastErr = getErr
+			if lastErr != nil {
+				klog.V(params.NeuronLogLevel).Infof(
+					"DeviceConfig %s in namespace %s is not available yet: %v",
+					name, namespace, lastErr)
+
+				return false, nil
+			}
+
+			draDriverImage, found, nestedErr := unstructured.NestedString(
+				deviceConfig.Object, "spec", "draDriverImage")
+			if nestedErr != nil {
+				return false, fmt.Errorf("failed to read DeviceConfig DRA driver image: %w", nestedErr)
+			}
+
+			if !found || draDriverImage == "" {
+				lastErr = fmt.Errorf("DeviceConfig does not have spec.draDriverImage configured")
+
+				return false, nil
+			}
+
+			lastErr = nil
+
+			return true, nil
+		})
+	if err != nil {
+		if lastErr != nil {
+			return fmt.Errorf(
+				"DRA DeviceConfig %s in namespace %s is not ready: %w",
+				name, namespace, lastErr)
+		}
+
+		return fmt.Errorf(
+			"DRA DeviceConfig %s in namespace %s is not ready: %w",
+			name, namespace, err)
+	}
+
+	return nil
+}
+
+// DeviceConfigDeleted waits until the named DeviceConfig no longer exists.
+func DeviceConfigDeleted(apiClient *clients.Settings, name, namespace string,
+	timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 5*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			_, err := apiClient.Resource(neuronparams.DeviceConfigGVR).
+				Namespace(namespace).
+				Get(ctx, name, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				return true, nil
+			}
+
+			if err != nil {
+				return false, err
+			}
+
+			return false, nil
+		})
+}
+
+// ResourceClaimAllocatedAndReserved waits for a ResourceClaim in the namespace
+// to be allocated and reserved for a consumer.
+func ResourceClaimAllocatedAndReserved(
+	apiClient *clients.Settings, namespace string, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 10*time.Second, timeout, true,
+		func(context.Context) (bool, error) {
+			return check.ResourceClaimAllocatedAndReserved(apiClient, namespace)
+		})
+}
+
+// DRAResourcesAvailable waits until ResourceSlices advertise at least one
+// Neuron device on a node.
+func DRAResourcesAvailable(apiClient *clients.Settings, timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 10*time.Second, timeout, true,
+		func(context.Context) (bool, error) {
+			_, deviceCount, err := check.SmallestDRANode(apiClient)
+			if err != nil {
+				return false, nil
+			}
+
+			return deviceCount > 0, nil
+		})
+}
+
+// VLLMPodsUseDefaultScheduler waits for all matching vLLM pods to be scheduled
+// by the Kubernetes default scheduler.
+func VLLMPodsUseDefaultScheduler(
+	apiClient *clients.Settings, namespace string, podLabels map[string]string,
+	timeout time.Duration) error {
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 10*time.Second, timeout, true,
+		func(context.Context) (bool, error) {
+			return check.VLLMPodsUseDefaultScheduler(apiClient, namespace, podLabels)
+		})
+}
+
+// VLLMDeploymentReady waits for a vLLM deployment to become ready while tolerating
+// transient API errors and reporting a crashing container's previous logs.
+func VLLMDeploymentReady(
+	apiClient *clients.Settings, name, namespace string, podLabels map[string]string,
+	timeout time.Duration) error {
+	lastState := "deployment has not been observed"
+
+	err := wait.PollUntilContextTimeout(
+		context.TODO(), 10*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			vllmDeployment, getErr := apiClient.K8sClient.AppsV1().Deployments(namespace).
+				Get(ctx, name, metav1.GetOptions{})
+			if getErr != nil {
+				if apierrors.IsForbidden(getErr) || apierrors.IsUnauthorized(getErr) {
+					return false, getErr
+				}
+
+				lastState = fmt.Sprintf("deployment API request failed: %v", getErr)
+				klog.V(params.NeuronLogLevel).Infof(
+					"Failed to inspect vLLM deployment %s in namespace %s; retrying: %v",
+					name, namespace, getErr)
+
+				return false, nil
+			}
+
+			lastState = fmt.Sprintf(
+				"deployment replicas=%d ready=%d available=%d unavailable=%d",
+				vllmDeployment.Status.Replicas,
+				vllmDeployment.Status.ReadyReplicas,
+				vllmDeployment.Status.AvailableReplicas,
+				vllmDeployment.Status.UnavailableReplicas)
+
+			if vllmDeployment.Status.Replicas > 0 &&
+				vllmDeployment.Status.ReadyReplicas == vllmDeployment.Status.Replicas {
+				return true, nil
+			}
+
+			podList, listErr := apiClient.CoreV1Interface.Pods(namespace).List(
+				ctx, metav1.ListOptions{LabelSelector: labels.Set(podLabels).String()})
+			if listErr != nil {
+				if apierrors.IsForbidden(listErr) || apierrors.IsUnauthorized(listErr) {
+					return false, listErr
+				}
+
+				lastState += fmt.Sprintf("; pod API request failed: %v", listErr)
+
+				return false, nil
+			}
+
+			podState, podErr := vllmPodState(ctx, apiClient, namespace, podList.Items)
+			lastState += "; " + podState
+
+			if podErr != nil {
+				return false, podErr
+			}
+
+			return false, nil
+		})
+	if err != nil {
+		return fmt.Errorf(
+			"vLLM deployment %s in namespace %s did not become ready; last observed state: %s: %w",
+			name, namespace, lastState, err)
+	}
+
+	return nil
+}
+
+func vllmPodState(
+	ctx context.Context, apiClient *clients.Settings, namespace string,
+	pods []corev1.Pod) (string, error) {
+	if len(pods) == 0 {
+		return "no matching vLLM pods found", nil
+	}
+
+	podStates := make([]string, 0, len(pods))
+
+	for _, vllmPod := range pods {
+		containerStates := make([]string, 0, len(vllmPod.Status.ContainerStatuses))
+
+		for _, containerStatus := range vllmPod.Status.ContainerStatuses {
+			state := fmt.Sprintf(
+				"container=%s ready=%t restarts=%d",
+				containerStatus.Name, containerStatus.Ready, containerStatus.RestartCount)
+
+			if waiting := containerStatus.State.Waiting; waiting != nil {
+				state += fmt.Sprintf(" waiting=%s", waiting.Reason)
+				if waiting.Message != "" {
+					state += fmt.Sprintf(" message=%q", waiting.Message)
+				}
+
+				terminated := containerStatus.LastTerminationState.Terminated
+				if waiting.Reason == "CrashLoopBackOff" && terminated != nil && terminated.ExitCode != 0 {
+					logs := vllmContainerLogs(
+						ctx, apiClient, namespace, vllmPod.Name, containerStatus.Name, true)
+
+					return state, fmt.Errorf(
+						"vLLM pod %s container %s is crash-looping after exit code %d (%s); previous logs:\n%s",
+						vllmPod.Name, containerStatus.Name, terminated.ExitCode, terminated.Reason, logs)
+				}
+			}
+
+			if terminated := containerStatus.State.Terminated; terminated != nil {
+				state += fmt.Sprintf(" terminated=%s exitCode=%d", terminated.Reason, terminated.ExitCode)
+				if terminated.ExitCode != 0 {
+					logs := vllmContainerLogs(
+						ctx, apiClient, namespace, vllmPod.Name, containerStatus.Name, false)
+
+					return state, fmt.Errorf(
+						"vLLM pod %s container %s exited with code %d (%s); logs:\n%s",
+						vllmPod.Name, containerStatus.Name, terminated.ExitCode, terminated.Reason, logs)
+				}
+			}
+
+			containerStates = append(containerStates, state)
+		}
+
+		podStates = append(podStates, fmt.Sprintf(
+			"pod=%s phase=%s [%s]",
+			vllmPod.Name, vllmPod.Status.Phase, strings.Join(containerStates, ", ")))
+	}
+
+	return strings.Join(podStates, "; "), nil
+}
+
+func vllmContainerLogs(
+	ctx context.Context, apiClient *clients.Settings, namespace, podName, containerName string,
+	previous bool) string {
+	tailLines := int64(80)
+
+	logs, err := apiClient.CoreV1Interface.Pods(namespace).GetLogs(
+		podName, &corev1.PodLogOptions{
+			Container: containerName,
+			Previous:  previous,
+			TailLines: &tailLines,
+		}).DoRaw(ctx)
+	if err != nil {
+		return fmt.Sprintf("failed to retrieve container logs: %v", err)
+	}
+
+	const maxLogBytes = 12_000
+	if len(logs) > maxLogBytes {
+		logs = logs[len(logs)-maxLogBytes:]
+	}
+
+	return strings.TrimSpace(string(logs))
+}
 
 // DevicePluginDeployment waits for the device plugin DaemonSet to be ready.
 func DevicePluginDeployment(apiClient *clients.Settings, namespace string, timeout time.Duration) error {

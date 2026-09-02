@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/deployment"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/params"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -236,6 +237,45 @@ func CreateVLLMDeployment(config VLLMDeploymentConfig) *appsv1.Deployment {
 			},
 		},
 	}
+}
+
+// CreateDRAVLLMDeployment creates a vLLM Deployment that consumes Neuron devices
+// through a ResourceClaimTemplate and the default Kubernetes scheduler.
+func CreateDRAVLLMDeployment(
+	config VLLMDeploymentConfig, claimTemplateName string) *appsv1.Deployment {
+	vllmDeployment := CreateVLLMDeployment(config)
+	podSpec := &vllmDeployment.Spec.Template.Spec
+
+	podSpec.SchedulerName = ""
+	podSpec.ResourceClaims = []corev1.PodResourceClaim{
+		{
+			Name:                      params.DRADeviceRequestName,
+			ResourceClaimTemplateName: &claimTemplateName,
+		},
+	}
+
+	vllmContainer := &podSpec.Containers[0]
+	delete(vllmContainer.Resources.Limits, corev1.ResourceName(params.NeuronCapacityID))
+	delete(vllmContainer.Resources.Requests, corev1.ResourceName(params.NeuronCapacityID))
+	vllmContainer.Resources.Claims = []corev1.ResourceClaim{{Name: params.DRADeviceRequestName}}
+
+	return vllmDeployment
+}
+
+// NewVLLMDeploymentBuilder wraps a vLLM Deployment definition with the shared
+// eco-goinfra Deployment builder so callers can reuse its lifecycle and wait helpers.
+func NewVLLMDeploymentBuilder(
+	apiClient *clients.Settings, vllmDeployment *appsv1.Deployment) *deployment.Builder {
+	builder := deployment.NewBuilder(
+		apiClient,
+		vllmDeployment.Name,
+		vllmDeployment.Namespace,
+		vllmDeployment.Spec.Template.Labels,
+		vllmDeployment.Spec.Template.Spec.Containers[0],
+	)
+	builder.Definition = vllmDeployment
+
+	return builder
 }
 
 // VLLMServiceConfig holds configuration for creating a vLLM service.

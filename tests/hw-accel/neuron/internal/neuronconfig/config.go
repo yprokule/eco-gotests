@@ -175,6 +175,14 @@ func (c *NeuronConfig) IsDRAConfigured() bool {
 	return c.DRADriverImage != ""
 }
 
+// IsDRAInClusterBuildConfigured checks whether the inputs required to exercise
+// a DRA DeviceConfig with an in-cluster kernel driver build are available.
+// DriversImage is intentionally ignored because the test omits it from the
+// DeviceConfig even when the wider test environment provides a pre-built image.
+func (c *NeuronConfig) IsDRAInClusterBuildConfigured() bool {
+	return c.DRADriverImage != "" && c.DriverVersion != "" && c.NodeMetricsImage != ""
+}
+
 // IsDRAUpgradeConfigured checks if DRA upgrade testing configuration is present.
 // Requires two distinct DRA driver images to avoid a vacuous pass.
 func (c *NeuronConfig) IsDRAUpgradeConfigured() bool {

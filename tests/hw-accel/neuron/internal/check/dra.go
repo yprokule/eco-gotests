@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/kmm"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/neuron"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/resource"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/params"
@@ -13,6 +15,45 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 )
+
+// DRAInClusterBuildConfigured verifies that the DeviceConfig omits a pre-built
+// driver image and that the generated Module combines in-cluster build settings
+// with DRA instead of the legacy device plugin.
+func DRAInClusterBuildConfigured(apiClient *clients.Settings) (bool, error) {
+	deviceConfig, err := neuron.Pull(
+		apiClient, params.DefaultDeviceConfigName, params.NeuronNamespace)
+	if err != nil {
+		return false, fmt.Errorf("pulling DeviceConfig: %w", err)
+	}
+
+	spec := deviceConfig.Object.Spec
+	if spec.DriversImage != "" || spec.DriverVersion == "" || spec.DRADriverImage == "" {
+		return false, nil
+	}
+
+	module, err := kmm.Pull(apiClient, params.DefaultDeviceConfigName, params.NeuronNamespace)
+	if err != nil {
+		return false, fmt.Errorf("pulling KMM Module: %w", err)
+	}
+
+	moduleSpec := module.Object.Spec
+	if moduleSpec.DRA == nil || moduleSpec.DevicePlugin != nil || moduleSpec.ModuleLoader == nil {
+		return false, nil
+	}
+
+	container := moduleSpec.ModuleLoader.Container
+	if container.Build != nil {
+		return true, nil
+	}
+
+	for _, mapping := range container.KernelMappings {
+		if mapping.Build != nil {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
 
 // DRADaemonSet returns the DRA driver DaemonSet from the operator namespace.
 func DRADaemonSet(apiClient *clients.Settings) (*appsv1.DaemonSet, error) {
@@ -69,6 +110,23 @@ func SmallestDRANode(apiClient *clients.Settings) (string, int, error) {
 		targetNode, targetDeviceCount)
 
 	return targetNode, targetDeviceCount, nil
+}
+
+// ResourceClaimAllocatedAndReserved reports whether a ResourceClaim in the
+// namespace is both allocated and reserved for a consumer.
+func ResourceClaimAllocatedAndReserved(apiClient *clients.Settings, namespace string) (bool, error) {
+	claims, err := resource.ListResourceClaims(apiClient, namespace)
+	if err != nil {
+		return false, err
+	}
+
+	for _, claim := range claims {
+		if claim.Object.Status.Allocation != nil && len(claim.Object.Status.ReservedFor) > 0 {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // PodHasNeuronDevices checks if a running pod has /dev/neuron* devices visible.

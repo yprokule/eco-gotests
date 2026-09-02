@@ -309,3 +309,34 @@ func NewDeviceConfigBuilder(apiClient *clients.Settings,
 
 	return builder
 }
+
+// NewDRAInClusterBuildDeviceConfigBuilder creates a DRA-mode DeviceConfig
+// builder that deliberately leaves DriversImage empty so KMM builds the Neuron
+// kernel driver in the cluster.
+func NewDRAInClusterBuildDeviceConfigBuilder(apiClient *clients.Settings,
+	config *neuronconfig.NeuronConfig) *neuron.Builder {
+	if config == nil {
+		return nil
+	}
+
+	builder := neuron.NewBuilderWithInClusterBuildDRA(
+		apiClient,
+		params.DefaultDeviceConfigName,
+		params.NeuronNamespace,
+		config.DriverVersion,
+		config.DRADriverImage,
+	)
+	if builder == nil {
+		return nil
+	}
+
+	builder = builder.WithSelector(map[string]string{
+		params.NeuronNFDLabelKey: params.NeuronNFDLabelValue,
+	}).WithNodeMetricsImage(config.NodeMetricsImage)
+
+	if config.ImageRepoSecretName != "" {
+		builder = builder.WithImageRepoSecret(config.ImageRepoSecretName)
+	}
+
+	return builder
+}
