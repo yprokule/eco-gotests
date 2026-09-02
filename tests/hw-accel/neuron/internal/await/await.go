@@ -492,6 +492,96 @@ func NoSchedulerDeployments(apiClient *clients.Settings, namespace string,
 		})
 }
 
+// SchedulerDeploymentBySubstring waits for the custom-scheduler deployment to be ready.
+// The operator creates "<name>-custom-scheduler", not the constant SchedulerDeploymentName.
+// Matches "custom-scheduler" but excludes "custom-scheduler-extension".
+func SchedulerDeploymentBySubstring(apiClient *clients.Settings, namespace string,
+	timeout time.Duration) error {
+	klog.V(params.NeuronLogLevel).Infof(
+		"Waiting for custom-scheduler deployment in namespace %s", namespace)
+
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 10*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			deployList, err := apiClient.K8sClient.AppsV1().Deployments(namespace).List(
+				ctx, metav1.ListOptions{})
+			if err != nil {
+				return false, nil
+			}
+
+			for _, deploy := range deployList.Items {
+				if strings.Contains(deploy.Name, "custom-scheduler") &&
+					!strings.Contains(deploy.Name, "scheduler-extension") &&
+					deploy.Status.ReadyReplicas > 0 {
+					klog.V(params.NeuronLogLevel).Infof(
+						"Scheduler deployment %s is ready", deploy.Name)
+
+					return true, nil
+				}
+			}
+
+			return false, nil
+		})
+}
+
+// DevicePluginDaemonSetGone waits for all device-plugin DaemonSets to be deleted from a namespace.
+func DevicePluginDaemonSetGone(apiClient *clients.Settings, namespace string,
+	timeout time.Duration) error {
+	klog.V(params.NeuronLogLevel).Infof(
+		"Waiting for device-plugin DaemonSets to be deleted from namespace %s", namespace)
+
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 5*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			dsList, err := apiClient.K8sClient.AppsV1().DaemonSets(namespace).List(
+				ctx, metav1.ListOptions{})
+			if err != nil {
+				return false, nil
+			}
+
+			for _, ds := range dsList.Items {
+				if strings.HasPrefix(ds.Name, params.DevicePluginDaemonSetPrefix) {
+					klog.V(params.NeuronLogLevel).Infof(
+						"Device-plugin DaemonSet %s still exists", ds.Name)
+
+					return false, nil
+				}
+			}
+
+			klog.V(params.NeuronLogLevel).Info("All device-plugin DaemonSets deleted")
+
+			return true, nil
+		})
+}
+
+// ResourceSlicesGone waits for all ResourceSlices with the given driver to be deleted.
+func ResourceSlicesGone(apiClient *clients.Settings, driverName string,
+	timeout time.Duration) error {
+	klog.V(params.NeuronLogLevel).Infof(
+		"Waiting for ResourceSlices with driver %s to be deleted", driverName)
+
+	return wait.PollUntilContextTimeout(
+		context.TODO(), 5*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			sliceList, err := apiClient.K8sClient.ResourceV1().ResourceSlices().List(
+				ctx, metav1.ListOptions{})
+			if err != nil {
+				return false, nil
+			}
+
+			for idx := range sliceList.Items {
+				if sliceList.Items[idx].Spec.Driver == driverName {
+					return false, nil
+				}
+			}
+
+			klog.V(params.NeuronLogLevel).Infof(
+				"All ResourceSlices for driver %s deleted", driverName)
+
+			return true, nil
+		})
+}
+
 // DevicePluginRunningOnNode waits for the device plugin pod to be running on a specific node.
 func DevicePluginRunningOnNode(apiClient *clients.Settings, nodeName string,
 	timeout time.Duration) error {

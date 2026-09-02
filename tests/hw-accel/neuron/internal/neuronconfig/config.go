@@ -171,3 +171,16 @@ func (c *NeuronConfig) IsKServeConfigured() bool {
 func (c *NeuronConfig) IsDRAConfigured() bool {
 	return c.DRADriverImage != ""
 }
+
+// IsDRAMigrationConfigured checks if both device-plugin and DRA modes are configured,
+// enabling mode-switching tests (device-plugin ↔ DRA migration/rollback).
+func (c *NeuronConfig) IsDRAMigrationConfigured() bool {
+	hasDriverSource := c.DriversImage != "" || c.DriverVersion != ""
+
+	return c.IsDRAConfigured() &&
+		hasDriverSource &&
+		c.NodeMetricsImage != "" &&
+		c.DevicePluginImage != "" &&
+		c.SchedulerImage != "" &&
+		c.SchedulerExtensionImage != ""
+}
