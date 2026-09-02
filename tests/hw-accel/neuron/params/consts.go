@@ -73,6 +73,9 @@ const (
 	// DRADaemonSetPrefix is the prefix for DRA DaemonSet names created by KMM.
 	DRADaemonSetPrefix = "neuron-dra-"
 
+	// DRAMigrationLabel represents the label for DRA migration test cases.
+	DRAMigrationLabel = "dra-migration"
+
 	// SchedulerExtensionDeploymentPrefix is the prefix for the scheduler extension deployment.
 	SchedulerExtensionDeploymentPrefix = "neuron-scheduler-extension"
 )

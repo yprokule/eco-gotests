@@ -209,6 +209,10 @@ func determineProfileType(
 	// If the profile has one interface and one client interface, return ProfileTypeOC.
 	case numInterfaces == 1 && numClientInterfaces == 1:
 		return ProfileTypeOC, nil
+	// Dual T-BC must be classified before two-port OC: both have two client interfaces.
+	case numClientInterfaces == 2 && numServerInterfaces == 0 &&
+		isDualTBCReceiver(profile, controlledNames, profileName):
+		return ProfileTypeDualTBCReceiver, nil
 	// If the profile has two interfaces and two client interfaces, return ProfileTypeTwoPortOC.
 	case numInterfaces == 2 && numClientInterfaces == 2:
 		return ProfileTypeTwoPortOC, nil
@@ -222,6 +226,30 @@ func determineProfileType(
 	default:
 		return 0, fmt.Errorf("unable to determine PTP profile type based on defined rules")
 	}
+}
+
+// isDualTBCReceiver reports whether a multi-client profile is a dual time-receiver T-BC rather than a two-port OC.
+// Dual T-BC is identified by clockType T-BC, a controllingProfile reference, or a comma-separated upstreamPort
+// combined with telecom-slave (ts2phc/phc2sys) configuration.
+func isDualTBCReceiver(profile ptpv1.PtpProfile, controlledNames map[string]bool, profileName string) bool {
+	if profile.PtpSettings != nil && profile.PtpSettings["clockType"] == "T-BC" {
+		return true
+	}
+
+	if controlledNames[profileName] {
+		return true
+	}
+
+	return hasTelecomSlaveConfig(profile) && hasDualUpstreamPort(profile)
+}
+
+// hasDualUpstreamPort reports whether ptpSettings.upstreamPort lists more than one interface.
+func hasDualUpstreamPort(profile ptpv1.PtpProfile) bool {
+	if profile.PtpSettings == nil {
+		return false
+	}
+
+	return strings.Contains(profile.PtpSettings["upstreamPort"], ",")
 }
 
 // hasClientFlag checks if the ptp4lOpts string contains any client-only flags. Though the reference PTP profiles use

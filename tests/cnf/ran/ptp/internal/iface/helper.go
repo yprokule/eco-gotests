@@ -122,6 +122,20 @@ func SetInterfaceStatus(client *clients.Settings, nodeName string, iface Name, s
 	return nil
 }
 
+// SetInterfacesStatus sets each provided interface to the given state on nodeName.
+// Note: If setting an interface fails, the function returns an error immediately without rolling back
+// previously changed interfaces.
+func SetInterfacesStatus(client *clients.Settings, nodeName string, ifaces []Name, state InterfaceState) error {
+	for _, ifn := range ifaces {
+		err := SetInterfaceStatus(client, nodeName, ifn, state)
+		if err != nil {
+			return fmt.Errorf("failed to set interface %s to %s on node %s: %w", ifn, state, nodeName, err)
+		}
+	}
+
+	return nil
+}
+
 var phcCtlCmpRegex = regexp.MustCompile(`offset from CLOCK_REALTIME is ([-0-9]+)ns`)
 
 // GetPTPClockSystemTimeOffset compares a PTP clock with the system clock and returns the offset with nanosecond

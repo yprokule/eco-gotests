@@ -383,7 +383,7 @@ func getOc2PortInfo(
 
 	var err error
 
-	activeInterface, passiveInterface, err := profiles.Oc2PortDetermineActivePassiveInterfaces(
+	activeInterface, passiveInterface, err := profiles.DetermineActivePassiveInterfaces(
 		context.TODO(), prometheusAPI, nodeName, oc2PortInterfaces)
 	Expect(err).ToNot(HaveOccurred(), "Failed to determine active/passive interfaces")
 
@@ -443,7 +443,7 @@ func waitForOc2PortActivePassive(
 	GinkgoHelper()
 
 	Eventually(func() error {
-		_, _, err := profiles.Oc2PortDetermineActivePassiveInterfaces(
+		_, _, err := profiles.DetermineActivePassiveInterfaces(
 			ctx, prometheusAPI, nodeName, oc2PortInterfaces)
 
 		return err
