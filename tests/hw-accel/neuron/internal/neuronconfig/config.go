@@ -53,6 +53,8 @@ type NeuronConfig struct {
 	KServeTensorParallelSize string
 	// DRADriverImage is the DRA driver image for DRA mode.
 	DRADriverImage string
+	// UpgradeDRADriverImage is the target DRA driver image for DRA upgrade tests.
+	UpgradeDRADriverImage string
 }
 
 // NewNeuronConfig creates a new NeuronConfig from environment variables.
@@ -80,6 +82,7 @@ func NewNeuronConfig() *NeuronConfig {
 		KServeNamespace:           os.Getenv("ECO_HWACCEL_NEURON_KSERVE_NAMESPACE"),
 		KServeTensorParallelSize:  os.Getenv("ECO_HWACCEL_NEURON_KSERVE_TENSOR_PARALLEL_SIZE"),
 		DRADriverImage:            os.Getenv("ECO_HWACCEL_NEURON_DRA_DRIVER_IMAGE"),
+		UpgradeDRADriverImage:     os.Getenv("ECO_HWACCEL_NEURON_DRA_UPGRADE_DRIVER_IMAGE"),
 	}
 
 	// Set defaults
@@ -170,6 +173,14 @@ func (c *NeuronConfig) IsKServeConfigured() bool {
 // IsDRAConfigured checks if DRA testing configuration is present.
 func (c *NeuronConfig) IsDRAConfigured() bool {
 	return c.DRADriverImage != ""
+}
+
+// IsDRAUpgradeConfigured checks if DRA upgrade testing configuration is present.
+// Requires two distinct DRA driver images to avoid a vacuous pass.
+func (c *NeuronConfig) IsDRAUpgradeConfigured() bool {
+	return c.IsDRAConfigured() &&
+		c.UpgradeDRADriverImage != "" &&
+		c.DRADriverImage != c.UpgradeDRADriverImage
 }
 
 // IsDRAMigrationConfigured checks if both device-plugin and DRA modes are configured,
