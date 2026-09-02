@@ -61,7 +61,7 @@ var _ = Describe("Neuron DRA Allocation Tests", Ordered,
 
 				rctBuilder := resource.NewResourceClaimTemplateBuilder(
 					APIClient, draClaimTemplate, draAllocTestNS).
-					WithDeviceRequest("neuron-device", params.DRADefaultDeviceClassName, 1)
+					WithDeviceRequest(params.DRADeviceRequestName, params.DRADefaultDeviceClassName, 1)
 				Expect(rctBuilder).ToNot(BeNil())
 
 				if !rctBuilder.Exists() {

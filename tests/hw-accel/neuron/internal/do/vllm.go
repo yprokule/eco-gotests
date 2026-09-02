@@ -238,6 +238,29 @@ func CreateVLLMDeployment(config VLLMDeploymentConfig) *appsv1.Deployment {
 	}
 }
 
+// CreateDRAVLLMDeployment creates a vLLM Deployment that consumes Neuron devices
+// through a ResourceClaimTemplate and the default Kubernetes scheduler.
+func CreateDRAVLLMDeployment(
+	config VLLMDeploymentConfig, claimTemplateName string) *appsv1.Deployment {
+	vllmDeployment := CreateVLLMDeployment(config)
+	podSpec := &vllmDeployment.Spec.Template.Spec
+
+	podSpec.SchedulerName = ""
+	podSpec.ResourceClaims = []corev1.PodResourceClaim{
+		{
+			Name:                      params.DRADeviceRequestName,
+			ResourceClaimTemplateName: &claimTemplateName,
+		},
+	}
+
+	vllmContainer := &podSpec.Containers[0]
+	delete(vllmContainer.Resources.Limits, corev1.ResourceName(params.NeuronCapacityID))
+	delete(vllmContainer.Resources.Requests, corev1.ResourceName(params.NeuronCapacityID))
+	vllmContainer.Resources.Claims = []corev1.ResourceClaim{{Name: params.DRADeviceRequestName}}
+
+	return vllmDeployment
+}
+
 // VLLMServiceConfig holds configuration for creating a vLLM service.
 type VLLMServiceConfig struct {
 	Name      string

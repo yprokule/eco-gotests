@@ -140,7 +140,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 			})
 
 			It("should update Module spec.dra after draDriverImage change",
-				reportxml.ID("90510"), func() {
+				reportxml.ID("90515"), func() {
 					By("Updating DeviceConfig with new DRA driver image")
 
 					dcBuilder, err := neuron.Pull(
@@ -169,7 +169,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 				})
 
 			It("should create new DRA DaemonSet with updated image",
-				reportxml.ID("90511"), func() {
+				reportxml.ID("90516"), func() {
 					By("Waiting for a ready DRA DaemonSet with the upgrade image and the old DS gone")
 
 					Eventually(func() bool {
@@ -227,7 +227,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 				})
 
 			It("should still have ResourceSlices published after upgrade",
-				reportxml.ID("90512"), func() {
+				reportxml.ID("90517"), func() {
 					By("Verifying ResourceSlices exist for neuron.aws.com driver")
 
 					slices, err := resource.ListResourceSlicesByDriver(
@@ -245,7 +245,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 				})
 
 			It("should still have DeviceClass after upgrade",
-				reportxml.ID("90513"), func() {
+				reportxml.ID("90514"), func() {
 					By("Verifying DeviceClass exists")
 
 					err := await.DeviceClassExists(
@@ -255,7 +255,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 				})
 
 			It("should report DRA availability in Module status after upgrade",
-				reportxml.ID("90514"), func() {
+				reportxml.ID("90518"), func() {
 					By("Verifying Module status.dra.availableNumber")
 
 					module, err := kmm.Pull(
@@ -297,7 +297,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 			})
 
 			It("should have node-metrics DaemonSet running alongside DRA",
-				reportxml.ID("90515"), func() {
+				reportxml.ID("90519"), func() {
 					By("Waiting for metrics DaemonSet to be ready")
 
 					err := await.MetricsDaemonSet(
@@ -307,7 +307,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 				})
 
 			It("should have metrics pods on all Neuron nodes",
-				reportxml.ID("90516"), func() {
+				reportxml.ID("90520"), func() {
 					By("Listing metrics DaemonSet")
 
 					dsList, err := APIClient.K8sClient.AppsV1().DaemonSets(
@@ -334,7 +334,7 @@ var _ = Describe("Neuron DRA Upgrade Tests", Ordered,
 				})
 
 			It("should have both DRA and metrics DaemonSets coexisting",
-				reportxml.ID("90517"), func() {
+				reportxml.ID("90521"), func() {
 					By("Listing all DaemonSets in operator namespace")
 
 					dsList, err := APIClient.K8sClient.AppsV1().DaemonSets(

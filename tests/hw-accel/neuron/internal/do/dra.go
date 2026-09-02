@@ -20,7 +20,7 @@ func NewDRAConsumerPod(
 	apiClient *clients.Settings, name, namespace, claimTemplateName string) *pod.Builder {
 	return pod.NewBuilder(apiClient, name, namespace, defaultTestImage).
 		WithCommand([]string{"sleep", "infinity"}).
-		WithResourceClaim("neuron-device", claimTemplateName)
+		WithResourceClaim(params.DRADeviceRequestName, claimTemplateName)
 }
 
 // NewSleepPod creates a simple pod builder with a sleep infinity command.
