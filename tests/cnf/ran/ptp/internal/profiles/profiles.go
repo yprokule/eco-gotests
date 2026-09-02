@@ -53,6 +53,10 @@ const (
 	// ProfileTypeTTSC refers to a Telecom Time Slave Clock (ITU-T G.8275.1). It has ts2phc and phc2sys
 	// configurations for hardware timestamping and holdover, but is not part of a T-BC pair.
 	ProfileTypeTTSC
+	// ProfileTypeDualTBCReceiver refers to a T-BC receiver with two time-receiver ports on the same NIC
+	// (same PHC). One port is active (SLAVE/FOLLOWER) and the other is backup (LISTENING); loss of the
+	// active port failovers to the backup, and loss of both ports enters holdover.
+	ProfileTypeDualTBCReceiver
 )
 
 // PtpClockType enumerates the roles of each interface. It is different from the roles in metrics, which include extra

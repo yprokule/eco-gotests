@@ -17,10 +17,10 @@ type Oc2PortInfo struct {
 	PassiveInterface iface.Name
 }
 
-// Oc2PortDetermineActivePassiveInterfaces queries Prometheus metrics to identify which interface
-// in an OC 2-port configuration is currently active (FOLLOWER/SLAVE) and which is passive
-// (LISTENING). It returns an error if roles cannot be determined or are unexpected.
-func Oc2PortDetermineActivePassiveInterfaces(
+// DetermineActivePassiveInterfaces queries Prometheus metrics to identify which interface
+// in a multi-port configuration (like OC 2-port or Dual T-BC) is currently active (FOLLOWER/SLAVE)
+// and which is passive (LISTENING/PASSIVE). It returns an error if roles cannot be determined or are unexpected.
+func DetermineActivePassiveInterfaces(
 	ctx context.Context,
 	prometheusAPI prometheusv1.API,
 	nodeName string,
@@ -67,13 +67,11 @@ func Oc2PortDetermineActivePassiveInterfaces(
 		//nolint:exhaustive // Only two roles are valid for this logic.
 		switch role {
 		case metrics.InterfaceRoleFollower:
-			// Follower = SLAVE = Active
 			activeIface = clientIface.Name
-		case metrics.InterfaceRoleListening:
-			// Listening = Passive
+		case metrics.InterfaceRoleListening, metrics.InterfaceRolePassive:
 			passiveIface = clientIface.Name
 		default:
-			return "", "", fmt.Errorf("unexpected role %d for interface %s in OC 2-port profile",
+			return "", "", fmt.Errorf("unexpected role %d for interface %s",
 				role, clientIface.Name)
 		}
 	}

@@ -92,3 +92,57 @@ func TestGetRxInterfaces(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []iface.Name{"ens2f0"}, got)
 }
+
+func TestGetUpstreamPortsForProfile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		profile *ptpv1.PtpProfile
+		want    []iface.Name
+		wantErr bool
+	}{
+		{
+			name: "single upstreamPort",
+			profile: &ptpv1.PtpProfile{
+				PtpSettings: map[string]string{"upstreamPort": "ens7f1"},
+			},
+			want: []iface.Name{"ens7f1"},
+		},
+		{
+			name: "dual comma-separated upstreamPort",
+			profile: &ptpv1.PtpProfile{
+				PtpSettings: map[string]string{"upstreamPort": "ens7f1,ens7f3"},
+			},
+			want: []iface.Name{"ens7f1", "ens7f3"},
+		},
+		{
+			name: "dual upstreamPort with spaces",
+			profile: &ptpv1.PtpProfile{
+				PtpSettings: map[string]string{"upstreamPort": "eno8503np2, eno8603np3"},
+			},
+			want: []iface.Name{"eno8503np2", "eno8603np3"},
+		},
+		{
+			name:    "missing upstreamPort and plugin",
+			profile: &ptpv1.PtpProfile{},
+			wantErr: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := GetUpstreamPortsForProfile(testCase.profile)
+			if testCase.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.want, got)
+		})
+	}
+}
