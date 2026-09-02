@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
-	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/deployment"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/params"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -260,22 +259,6 @@ func CreateDRAVLLMDeployment(
 	vllmContainer.Resources.Claims = []corev1.ResourceClaim{{Name: params.DRADeviceRequestName}}
 
 	return vllmDeployment
-}
-
-// NewVLLMDeploymentBuilder wraps a vLLM Deployment definition with the shared
-// eco-goinfra Deployment builder so callers can reuse its lifecycle and wait helpers.
-func NewVLLMDeploymentBuilder(
-	apiClient *clients.Settings, vllmDeployment *appsv1.Deployment) *deployment.Builder {
-	builder := deployment.NewBuilder(
-		apiClient,
-		vllmDeployment.Name,
-		vllmDeployment.Namespace,
-		vllmDeployment.Spec.Template.Labels,
-		vllmDeployment.Spec.Template.Spec.Containers[0],
-	)
-	builder.Definition = vllmDeployment
-
-	return builder
 }
 
 // VLLMServiceConfig holds configuration for creating a vLLM service.

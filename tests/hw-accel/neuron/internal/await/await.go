@@ -8,6 +8,7 @@ import (
 
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/clients"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/deployment"
+	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/neuron"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/nodes"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/pod"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/internal/check"
@@ -16,7 +17,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
@@ -29,10 +29,8 @@ func DRADeviceConfig(apiClient *clients.Settings, name, namespace string,
 
 	err := wait.PollUntilContextTimeout(
 		context.TODO(), 5*time.Second, timeout, true,
-		func(ctx context.Context) (bool, error) {
-			deviceConfig, getErr := apiClient.Resource(neuronparams.DeviceConfigGVR).
-				Namespace(namespace).
-				Get(ctx, name, metav1.GetOptions{})
+		func(context.Context) (bool, error) {
+			deviceConfig, getErr := neuron.Pull(apiClient, name, namespace)
 
 			lastErr = getErr
 			if lastErr != nil {
@@ -43,13 +41,7 @@ func DRADeviceConfig(apiClient *clients.Settings, name, namespace string,
 				return false, nil
 			}
 
-			draDriverImage, found, nestedErr := unstructured.NestedString(
-				deviceConfig.Object, "spec", "draDriverImage")
-			if nestedErr != nil {
-				return false, fmt.Errorf("failed to read DeviceConfig DRA driver image: %w", nestedErr)
-			}
-
-			if !found || draDriverImage == "" {
+			if deviceConfig.Definition.Spec.DRADriverImage == "" {
 				lastErr = fmt.Errorf("DeviceConfig does not have spec.draDriverImage configured")
 
 				return false, nil

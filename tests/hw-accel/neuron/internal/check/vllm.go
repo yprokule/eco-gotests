@@ -37,6 +37,8 @@ func VLLMDeploymentUsesResourceClaim(
 		return false, nil
 	}
 
+	hasContainerClaim := false
+
 	for _, container := range podSpec.Containers {
 		if _, found := container.Resources.Limits[corev1.ResourceName(params.NeuronCapacityID)]; found {
 			return false, nil
@@ -48,12 +50,12 @@ func VLLMDeploymentUsesResourceClaim(
 
 		for _, claim := range container.Resources.Claims {
 			if claim.Name == claimName {
-				return true, nil
+				hasContainerClaim = true
 			}
 		}
 	}
 
-	return false, nil
+	return hasContainerClaim, nil
 }
 
 // VLLMPodsUseDefaultScheduler reports whether all matching scheduled vLLM pods

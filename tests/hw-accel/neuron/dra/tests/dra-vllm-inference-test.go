@@ -122,8 +122,8 @@ var _ = Describe("Neuron DRA vLLM Inference Tests", Ordered,
 
 				vllmDeployment := do.CreateDRAVLLMDeployment(
 					vllmConfig, tsparams.DRAVLLMClaimTemplate)
-				deploymentBuilder := do.NewVLLMDeploymentBuilder(APIClient, vllmDeployment)
-				_, err = deploymentBuilder.Create()
+				_, err = APIClient.AppsV1Interface.Deployments(tsparams.DRAVLLMTestNamespace).Create(
+					context.Background(), vllmDeployment, metav1.CreateOptions{})
 				Expect(err).ToNot(HaveOccurred(), "Failed to create DRA-aware vLLM deployment")
 			})
 

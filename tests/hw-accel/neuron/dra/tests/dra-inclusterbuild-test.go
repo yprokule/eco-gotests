@@ -1,6 +1,9 @@
 package tests
 
 import (
+	"errors"
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/rh-ecosystem-edge/eco-goinfra/pkg/namespace"
@@ -14,6 +17,7 @@ import (
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/internal/neuronhelpers"
 	"github.com/rh-ecosystem-edge/eco-gotests/tests/hw-accel/neuron/params"
 	. "github.com/rh-ecosystem-edge/eco-gotests/tests/internal/inittools"
+	"k8s.io/klog/v2"
 )
 
 var _ = Describe("Neuron DRA In-Cluster Build Tests", Ordered,
@@ -91,19 +95,34 @@ var _ = Describe("Neuron DRA In-Cluster Build Tests", Ordered,
 				AfterAll(func() {
 					By("Cleaning up DRA in-cluster build test resources")
 
-					if originalDeviceConfig != nil {
-						nsBuilder := namespace.NewBuilder(APIClient, tsparams.DRAInClusterBuildTestNamespace)
-						if nsBuilder.Exists() {
-							err := nsBuilder.DeleteAndWait(params.DefaultTimeout)
-							Expect(err).ToNot(HaveOccurred(), "Failed to delete the DRA consumer namespace")
-						}
+					cleanupErrors := make([]error, 0, 3)
 
+					nsBuilder := namespace.NewBuilder(APIClient, tsparams.DRAInClusterBuildTestNamespace)
+					if nsBuilder.Exists() {
+						err := nsBuilder.DeleteAndWait(params.DefaultTimeout)
+						if err != nil {
+							cleanupErrors = append(cleanupErrors,
+								fmt.Errorf("failed to delete the DRA consumer namespace: %w", err))
+						}
+					}
+
+					if originalDeviceConfig != nil {
 						err := do.RestoreDeviceConfig(
 							APIClient, originalDeviceConfig, params.DefaultTimeout)
-						Expect(err).ToNot(HaveOccurred(), "Failed to restore the original DeviceConfig")
+						if err != nil {
+							cleanupErrors = append(cleanupErrors,
+								fmt.Errorf("failed to restore the original DeviceConfig: %w", err))
+						}
 
 						err = neuronhelpers.WaitForClusterStabilityAfterDeviceConfig(APIClient)
-						Expect(err).ToNot(HaveOccurred(), "Cluster did not stabilize after restoring DeviceConfig")
+						if err != nil {
+							cleanupErrors = append(cleanupErrors,
+								fmt.Errorf("cluster did not stabilize after restoring DeviceConfig: %w", err))
+						}
+					}
+
+					if cleanupErr := errors.Join(cleanupErrors...); cleanupErr != nil {
+						klog.Errorf("DRA in-cluster build cleanup completed with errors: %v", cleanupErr)
 					}
 				})
 
